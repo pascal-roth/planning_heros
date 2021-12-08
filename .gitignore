@@ -3,9 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# project specific 
+*.idea
+out-docker/
+
 # C extensions
 *.so
-*.idea
 
 # Distribution / packaging
 .Python
