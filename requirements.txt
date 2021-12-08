@@ -8,4 +8,4 @@ osmnx>=1.1.1
 
 dg-commons==0.0.16
 reprep-z6>=6.0.3,<7
-
+shapely==1.8.0
