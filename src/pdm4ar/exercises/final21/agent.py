@@ -8,6 +8,8 @@ from dg_commons.sim.models.obstacles import StaticObstacle
 from dg_commons.sim.models.spacecraft import SpacecraftCommands
 from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 
+from pdm4ar.exercises.final21.rrt.rrt import RRT
+
 
 class Pdm4arAgent(Agent):
     """This is the PDM4AR agent.
@@ -24,6 +26,7 @@ class Pdm4arAgent(Agent):
         self.sg = sg
         self.sp = sp
         self.name = None
+        self.rrt: RRT = RRT(goal, static_obstacles)
 
     def on_episode_init(self, my_name: PlayerName):
         self.name = my_name
