@@ -41,7 +41,6 @@ class MotionPrimitives:
                 command = SpacecraftCommands(acc_left[i, j], acc_right[i, j])
                 trajectory = self._get_trajectory(spacecraft_t0, command)
                 self.primitives.append(trajectory)
-        self.plot_primitives()
         return self.primitives
 
     def _get_trajectory(self, spacecraft_t0: SpacecraftState,
@@ -111,3 +110,4 @@ if __name__ == "__main__":
     mp = MotionPrimitives(sg)
     spacecraft_t0 = SpacecraftState(x=0, y=0, psi=0, vx=.5, vy=0, dpsi=0)
     mp.generate(spacecraft_t0)
+    mp.plot_primitives()
