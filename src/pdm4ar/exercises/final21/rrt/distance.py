@@ -19,29 +19,27 @@ class DistanceMetric(enum.Enum):
 class Distance:
     def __init__(self,
                  method: DistanceMethod = DistanceMethod.BF,
-                 metric: DistanceMetric = DistanceMetric.L2,
-                 radius: Optional[float] = None):
+                 metric: DistanceMetric = DistanceMetric.L2):
         """
-
+        :param metric
         :param method:
-        :param radius:
         """
         self.method: DistanceMethod = method
         self.metric: DistanceMetric = metric
-        self.radius: Optional[float] = radius
 
         self.metric_fct: Callable
         self._get_metric()
 
-    def get_nn(self, point: np.ndarray, point_cloud: np.ndarray) -> np.ndarray:
+    def get_nn(self, point: list, point_cloud: np.ndarray, radius: Optional[float] = None) -> np.ndarray:
+        point = np.array(point)
         if self.method == DistanceMethod.BF:
             distance = [self.metric_fct(point - pc_entry) for pc_entry in point_cloud]
         else:
             raise NotImplementedError(f'Distance Method {self.method} not implemented')
 
         # if radius is defined, give all samples within radius, otherwise just the clostest idx of the pointcloud
-        if self.radius:
-            distance_mask = [True if distance_current < self.radius else False for distance_current in distance]
+        if radius:
+            distance_mask = [True if distance_current < radius else False for distance_current in distance]
             distance_idx = np.arange(len(distance))
             return distance_idx[distance_mask]
         else:
