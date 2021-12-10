@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
-from typing import Sequence
+from typing import Sequence, Dict, List
 from scipy.stats import qmc
 from shapely.geometry import Point
 
@@ -10,48 +10,68 @@ from dg_commons.planning import PolygonGoal
 from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
 
+# for comparability
+np.random.seed(seed=31)
+
 
 class Sampler:
     """
-    Sampler from the given geometry a certain number of points
+    Sampler from the given geometry a certain number of samples
     """
-    def __init__(self, static_obstacles: Sequence[StaticObstacle]):
+    def __init__(self, static_obstacles: Sequence[StaticObstacle],
+                 n_samples: int = 1000):
         """
         :param static_obstacles:    Obstacles in the given environment, note that obstacle 0 is the boundary of the
                                     environment !!!
+        :param n_samples:           number of samples in initial point_cloud
         """
         # set goal and boundary obstacle to control conditions
         self.obstacles: Sequence[StaticObstacle] = static_obstacles
-
         # Initialite the Halton sampler
         self.sampler_fct: qmc.Halton = qmc.Halton(d=2, seed=31)
         # track how much sampels drawn from sequence
-        self.n_samples: int = None
+        self.n_samples: int = n_samples
+        # point_cloud in the given environment
+        self.point_cloud_idx_latest: int = n_samples
+        self.point_cloud: Dict[int, list] = self._init_point_cloud()
 
-    def init_point_cloud(self, n_samples: int = 1) -> np.ndarray:
-        """
-        Initialize n samples of the given environment using the Halton Sequence.
-        """
-        self.n_samples = n_samples if not self.n_samples else self.n_samples
-        # draw n_samples
-        samples = self.sampler_fct.random(n_samples)
-        # scale samples
-        samples_scaled = self._scale_points(samples)
-        # check if samples in obstacle
-        samples_checked = self._check_obstacles(samples_scaled)
-        return samples_checked
-
-    def draw_additional_samples(self, n_samples: int = 1) -> np.ndarray:
+    def draw_additional_samples(self, n_samples: int = 1) -> List[int]:
         """
         draw additional n_samples from distributiuon
         :param n_samples:
         :return:
         """
-        _ = self.sampler_fct.fast_forward(self.n_samples)
+        _ = self.sampler_fct.fast_forward(self.n_samples)   # TODO: unsure if necessary
         self.n_samples += n_samples
-        return self.init_point_cloud(n_samples)
+        samples = self._get_sample(n_samples)
+        samples_pc = [(self.point_cloud_idx_latest+i, samples[i].tolist()) for i in range(n_samples)]
+        samples_idx = [self.point_cloud_idx_latest+i for i in range(n_samples)]
+        self.point_cloud_idx_latest += n_samples
+        self.point_cloud.update(dict(samples_pc))
+        return samples_idx
 
-    def _scale_points(self, samples) -> np.ndarray:
+    def pc2array(self) -> np.ndarray:
+        pc_list = list(self.point_cloud.values())
+        return np.array(pc_list)
+
+    def _init_point_cloud(self) -> Dict[int, list]:
+        samples = self._get_sample(self.n_samples)
+        point_cloud = [(i, samples[i].tolist()) for i in range(self.point_cloud_idx_latest)]
+        return dict(point_cloud)
+
+    def _get_sample(self, n_samples: int = 1) -> np.ndarray:
+        """
+        Initialize n samples of the given environment using the Halton Sequence.
+        """
+        # draw n_samples
+        samples = self.sampler_fct.random(n_samples)
+        # scale samples
+        samples_scaled = self._scale_samples(samples)
+        # check if samples in obstacle
+        samples_checked = self._check_obstacles(samples_scaled)
+        return samples_checked
+
+    def _scale_samples(self, samples) -> np.ndarray:
         # scale samples
         lower_bound = self.obstacles[0].shape.bounds[:2]
         upper_bound = self.obstacles[0].shape.bounds[2:]
@@ -67,10 +87,12 @@ class Sampler:
         # if any points in obstacles, get new points of sequence and advance the sequence
         n_missing = len(samples)-len(samples_free)
         if n_missing > 0:
-            samples_free = np.concatenate((samples_free, self.draw_additional_samples(n_missing)), axis=0)
+            _ = self.sampler_fct.fast_forward(self.n_samples)  # TODO: unsure if necessary
+            self.n_samples += n_missing
+            samples_free = np.concatenate((samples_free, self._get_sample(n_missing)), axis=0)
         return samples_free
 
-    def plot_samples(self, samples: np.ndarray, goal: PolygonGoal):
+    def plot_samples(self, goal: PolygonGoal):
         matplotlib.use('TkAgg')
         ax = plt.gca()
         shapely_viz = ShapelyViz(ax)
@@ -79,7 +101,8 @@ class Sampler:
             shapely_viz.add_shape(s_obstacle.shape, color=s_obstacle.geometry.color, zorder=ZOrders.ENV_OBSTACLE)
         shapely_viz.add_shape(goal.get_plottable_geometry(), color="orange", zorder=ZOrders.GOAL, alpha=0.5)
         ax = shapely_viz.ax
-        ax.scatter(samples[:, 0], samples[:, 1])
+        pc_array = self.pc2array()
+        ax.scatter(pc_array[:, 0], pc_array[:, 1])
         ax.autoscale()
         ax.set_facecolor('k')
         ax.set_aspect("equal")
