@@ -33,8 +33,9 @@ class RRT:
 
         # init distance calculation (atm with brute force distance and euclidean distance)
         self.distance = Distance(distance_method, distance_metric, radius=radius)
-        additional_sample = self.sampler.draw_additional_samples(1)
-        nn = self.distance.get_nn(additional_sample, self.point_cloud)
-        self.point_cloud = np.append(self.point_cloud, additional_sample)
+        # additional_sample = self.sampler.draw_additional_samples(1)
+        # nn = self.distance.get_nn(additional_sample, self.point_cloud)
+        # self.point_cloud = np.append(self.point_cloud, additional_sample)
 
-        # 
+        # initalize movement primitives
+
