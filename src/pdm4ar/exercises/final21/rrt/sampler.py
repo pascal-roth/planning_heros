@@ -33,30 +33,34 @@ class Sampler:
         self.n_samples: int = n_samples
         # point_cloud in the given environment
         self.point_cloud_idx_latest: int = n_samples
-        self.point_cloud: Dict[int, list] = self._init_point_cloud()
+        self.point_cloud: Dict[int, np.ndarray] = self._init_point_cloud()
 
-    def draw_additional_samples(self, n_samples: int = 1) -> List[int]:
+    def draw_samples(self, n_samples: int = 1) -> List[int]:
         """
         draw additional n_samples from distributiuon
         :param n_samples:
         :return:
         """
-        _ = self.sampler_fct.fast_forward(self.n_samples)   # TODO: unsure if necessary
+        # _ = self.sampler_fct.fast_forward(self.n_samples)   # TODO: unsure if necessary
         self.n_samples += n_samples
         samples = self._get_sample(n_samples)
-        samples_pc = [(self.point_cloud_idx_latest+i, samples[i].tolist()) for i in range(n_samples)]
         samples_idx = [self.point_cloud_idx_latest+i for i in range(n_samples)]
+        self.add_sample(samples)
+        return samples_idx
+
+    def add_sample(self, samples) -> None:
+        n_samples = len(samples)
+        samples_pc = [(self.point_cloud_idx_latest+i, samples[i]) for i in range(n_samples)]
         self.point_cloud_idx_latest += n_samples
         self.point_cloud.update(dict(samples_pc))
-        return samples_idx
 
     def pc2array(self) -> np.ndarray:
         pc_list = list(self.point_cloud.values())
         return np.array(pc_list)
 
-    def _init_point_cloud(self) -> Dict[int, list]:
+    def _init_point_cloud(self) -> Dict[int, np.ndarray]:
         samples = self._get_sample(self.n_samples)
-        point_cloud = [(i, samples[i].tolist()) for i in range(self.point_cloud_idx_latest)]
+        point_cloud = [(i, samples[i]) for i in range(self.point_cloud_idx_latest)]
         return dict(point_cloud)
 
     def _get_sample(self, n_samples: int = 1) -> np.ndarray:
@@ -87,7 +91,7 @@ class Sampler:
         # if any points in obstacles, get new points of sequence and advance the sequence
         n_missing = len(samples)-len(samples_free)
         if n_missing > 0:
-            _ = self.sampler_fct.fast_forward(self.n_samples)  # TODO: unsure if necessary
+            # _ = self.sampler_fct.fast_forward(self.n_samples)  # TODO: unsure if necessary
             self.n_samples += n_missing
             samples_free = np.concatenate((samples_free, self._get_sample(n_missing)), axis=0)
         return samples_free

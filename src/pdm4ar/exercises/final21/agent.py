@@ -40,7 +40,6 @@ class Pdm4arAgent(Agent):
         :param sim_obs:
         :return:
         """
-
-        # todo implement here
+        self.rrt.plan_path(sim_obs.players['PDM4AR'].state)
 
         return SpacecraftCommands(acc_left=1, acc_right=1)

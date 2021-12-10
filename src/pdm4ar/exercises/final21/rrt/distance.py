@@ -1,7 +1,6 @@
-from sklearn.neighbors import KDTree
 import numpy as np
 import enum
-from typing import Optional, Callable
+from typing import Optional, Callable, Union, Tuple
 
 
 class DistanceMethod(enum.Enum):
@@ -30,20 +29,26 @@ class Distance:
         self.metric_fct: Callable
         self._get_metric()
 
-    def get_nn(self, point: list, point_cloud: np.ndarray, radius: Optional[float] = None) -> np.ndarray:
-        point = np.array(point)
-        if self.method == DistanceMethod.BF:
-            distance = [self.metric_fct(point - pc_entry) for pc_entry in point_cloud]
-        else:
-            raise NotImplementedError(f'Distance Method {self.method} not implemented')
-
+    def get_nn(self, point_idx: int, point_cloud: np.ndarray, radius: Optional[float] = None) -> \
+            Union[Tuple[np.ndarray, np.ndarray], np.ndarray]:
+        distance = self._get_distance(point_idx, point_cloud)
         # if radius is defined, give all samples within radius, otherwise just the clostest idx of the pointcloud
         if radius:
             distance_mask = [True if distance_current < radius else False for distance_current in distance]
             distance_idx = np.arange(len(distance))
-            return distance_idx[distance_mask]
+            return np.argmin(distance), distance_idx[distance_mask]
         else:
             return np.argmin(distance)
+
+    def _get_distance(self, point_idx: int, point_cloud: np.ndarray, ):
+        if self.method == DistanceMethod.BF:
+            distance = [self.metric_fct(point_cloud[point_idx] - pc_entry) for pc_entry in point_cloud]
+        else:
+            raise NotImplementedError(f'Distance Method {self.method} not implemented')
+
+        # the point we compare the distance with is already included in the pointcloud -> set its distance to inf
+        distance[point_idx] = np.inf
+        return distance
 
     def _get_metric(self):
         if self.metric == DistanceMetric.L2:
