@@ -34,7 +34,7 @@ class Distance:
         distance = self._get_distance(point_idx, point_cloud)
         # if radius is defined, give all samples within radius, otherwise just the clostest idx of the pointcloud
         if radius:
-            distance_mask = [True if distance_current < radius else False for distance_current in distance]
+            distance_mask = [distance_current < radius for distance_current in distance]
             distance_idx = np.arange(len(distance))
             return np.argmin(distance), distance_idx[distance_mask]
         else:
