@@ -4,7 +4,7 @@ install_requires = []
 
 module = "pdm4ar"
 package = "pdm4ar"
-src = "src"
+src = ""
 
 setup(
     name=package,
