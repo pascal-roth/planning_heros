@@ -23,7 +23,6 @@ class RRT:
                  distance_metric: DistanceMetric = DistanceMetric.L2, 
                  radius: Optional[float] = 10.0):
         """
-
         :param goal:                Goal Polygon
         :param static_obstacles:    Obstacles in the given environment, note that obstacle 0 is the boundary of the
                                     environment !!!
@@ -51,7 +50,7 @@ class RRT:
         self.sample_state: Dict[int, SampleState] = {}
 
     def plan_path(self, spacecraft_state: SpacecraftState, plot: bool = True):
-        # construct a course path map for the initial point cloud
+        # construct a course path map for the initial point cloud, possible helpful for increasing the speed
         x_start = np.expand_dims(np.array([spacecraft_state.x, spacecraft_state.y]), axis=0)
         self.sampler.add_sample(x_start)
         x_start_idx = self.sampler.point_cloud_idx_latest-1
@@ -89,7 +88,7 @@ class RRT:
                     ax.plot((pc_point[0], pc_parent[0]), (pc_point[1], pc_parent[1]), color='r')
                 ax.set_title(f'added {idx} samples')
                 plt.pause(0.05)
-        plt.show()
+            plt.show()
 
         # TODO: get optimal plan
 
@@ -127,7 +126,7 @@ class RRT:
 
         # rebuild tree s.t. samples that can be reached with a smaller cost from the x_new are updated
         for x_near_current in X_near_idx:
-            
+
             # if not self.sample_state.get(x_near_current):
             #     continue
 
