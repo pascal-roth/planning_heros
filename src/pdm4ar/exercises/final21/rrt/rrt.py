@@ -98,7 +98,7 @@ class RRT:
         # collect closest sample and all samples within distance eth=radius
         _, x_near_idx = self.distance.tree.query(x_new, k=2)
         x_near_idx = x_near_idx[1]
-        X_near_idx = self.distance.tree.query_ball_point(x_new, r=self.radius)
+        X_near_idx = self.distance.tree.query_ball_point(x_new, r=self.radius, workers=-1)
         # TODO: update the radius dynamically with maximum distance that can be reached by movement primitive and
         #  that log(n) samples are included in it
 
