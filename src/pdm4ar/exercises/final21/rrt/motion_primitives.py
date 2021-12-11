@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 import numpy as np
 from scipy.integrate import solve_ivp
 from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftState, SpacecraftGeometry
@@ -8,6 +8,7 @@ import matplotlib
 
 from pdm4ar.exercises.final21.rrt.motion_constrains import MotionConstrains
 from pdm4ar.exercises.final21.rrt.trajectory import SpacecraftTrajectory
+from scipy.spatial import KDTree
 
 
 class MotionPrimitives:
@@ -19,6 +20,8 @@ class MotionPrimitives:
 
         self.motion_constrains: MotionConstrains = MotionConstrains()
         self.primitives: List[SpacecraftTrajectory] = []
+        self.kdtree: KDTree
+        self.max_distance_covered = self._max_distance_covered()
 
     def generate(self,
                  spacecraft_t0: SpacecraftState,
@@ -35,13 +38,26 @@ class MotionPrimitives:
         input_limits = self.motion_constrains.limit_acc
         acc = np.linspace(input_limits[0], input_limits[1], steps)
         acc_left, acc_right = np.meshgrid(acc, acc)
+        self.primitives.clear()
+        final_pos = np.zeros((acc_left.shape[0] * acc_left.shape[1], 2))
 
         for i in range(acc_left.shape[0]):
             for j in range(acc_left.shape[1]):
                 command = SpacecraftCommands(acc_left[i, j], acc_right[i, j])
                 trajectory = self._get_trajectory(spacecraft_t0, command)
                 self.primitives.append(trajectory)
+                final_pos[i * acc_left.shape[0] + j] = np.array(
+                    [trajectory.states[-1].x, trajectory.states[-1].y])
+
+        self._kdtree = KDTree(final_pos)
         return self.primitives
+
+    def closest(self,
+                pos: np.ndarray) -> Tuple[SpacecraftTrajectory, np.ndarray]:
+        _, closest_idx = self._kdtree.query(pos)
+        closest = self.primitives[closest_idx]
+        end_pos = np.array([closest.states[-1].x, closest.states[-1].y])
+        return self.primitives[closest_idx], end_pos
 
     def _get_trajectory(self, spacecraft_t0: SpacecraftState,
                         u: SpacecraftCommands) -> SpacecraftTrajectory:
@@ -83,6 +99,7 @@ class MotionPrimitives:
                         t_span=(0.0, self.dt),
                         y0=y0,
                         vectorized=True)
+
         assert sol.success, f"Solving the IVP for ({u.acc_left}, {u.acc_right}) failed"
         states: List[SpacecraftState] = [None] * sol.y.shape[1]
         for i in range(sol.y.shape[1]):
@@ -93,7 +110,17 @@ class MotionPrimitives:
                                         vx=s[2],
                                         vy=s[3],
                                         dpsi=s[5])
-        return SpacecraftTrajectory([u], states)
+        return SpacecraftTrajectory([u], states, 0, self.dt)
+
+    def _max_distance_covered(self) -> float:
+        fastest_state = SpacecraftState(x=0,
+                                        y=0,
+                                        psi=np.deg2rad(45),
+                                        vx=self.motion_constrains.limit_vel[1],
+                                        vy=self.motion_constrains.limit_vel[1],
+                                        dpsi=0)
+        self.generate(fastest_state, steps=2)
+        return np.max([trajectory.get_cost() for trajectory in self.primitives])
 
     def plot_primitives(self):
         plt.figure()

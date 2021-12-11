@@ -9,6 +9,7 @@ from dg_commons.sim.models.spacecraft import SpacecraftCommands
 from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 
 from pdm4ar.exercises.final21.rrt.rrt import RRT
+from pdm4ar.exercises.final21.rrt.params import DEFAULT_DT
 
 
 class Pdm4arAgent(Agent):
@@ -26,7 +27,9 @@ class Pdm4arAgent(Agent):
         self.sg = sg
         self.sp = sp
         self.name = None
-        self.rrt: RRT = RRT(goal, static_obstacles)
+
+        self.rrt: RRT = None
+        self.prev_sim_time:float = -1.
 
     def on_episode_init(self, my_name: PlayerName):
         self.name = my_name
@@ -40,6 +43,14 @@ class Pdm4arAgent(Agent):
         :param sim_obs:
         :return:
         """
+        # estimate dt from simulation time
+        # TODO: update DEFAULT_DT such that dt stays constant
+        dt = sim_obs.time - self.prev_sim_time if self.prev_sim_time != -1. else DEFAULT_DT
+        self.prev_sim_time = sim_obs.time
+        if self.rrt is None:
+            print(f"Creating RRT with dt: {dt}s")
+            self.rrt = RRT(self.goal, self.static_obstacles, self.sg, dt=dt)
+
         self.rrt.plan_path(sim_obs.players['PDM4AR'].state)
 
         return SpacecraftCommands(acc_left=1, acc_right=1)

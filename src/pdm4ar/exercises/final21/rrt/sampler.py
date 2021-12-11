@@ -10,6 +10,8 @@ from dg_commons.planning import PolygonGoal
 from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
 
+from pdm4ar.exercises.final21.rrt.collision import CollisionChecker
+
 # for comparability
 np.random.seed(seed=31)
 
@@ -31,9 +33,12 @@ class Sampler:
         self.sampler_fct: qmc.Halton = qmc.Halton(d=2, seed=31)
         # track how much sampels drawn from sequence
         self.n_samples: int = n_samples
+        
+        self.collision_checker = CollisionChecker(static_obstacles)
         # point_cloud in the given environment
         self.point_cloud_idx_latest: int = n_samples
         self.point_cloud: Dict[int, np.ndarray] = self._init_point_cloud()
+
 
     def draw_samples(self, n_samples: int = 1) -> List[int]:
         """
@@ -60,6 +65,8 @@ class Sampler:
 
     def _init_point_cloud(self) -> Dict[int, np.ndarray]:
         samples = self._get_sample(self.n_samples)
+        self.n_samples = samples.shape[0]
+        self.point_cloud_idx_latest = self.n_samples
         point_cloud = [(i, samples[i]) for i in range(self.point_cloud_idx_latest)]
         return dict(point_cloud)
 
@@ -83,17 +90,17 @@ class Sampler:
 
     def _check_obstacles(self, samples: np.ndarray) -> np.ndarray:
         # convert sample to shaply points
-        points = [Point(samples[idx, :]) for idx in range(len(samples))]
         # check if points in obstacles
-        point_mask = [any([self.obstacles[idx+1].shape.contains(pt) for idx in range(len(self.obstacles)-1)]) for pt in points]
-        point_mask = [not elem for elem in point_mask]
+        point_mask = self.collision_checker.is_collision_free(samples)
         samples_free = samples[point_mask]
+
+        # Max: removed due to unnecessary allocations, just add more sample instead
         # if any points in obstacles, get new points of sequence and advance the sequence
-        n_missing = len(samples)-len(samples_free)
-        if n_missing > 0:
-            # _ = self.sampler_fct.fast_forward(self.n_samples)  # TODO: unsure if necessary
-            self.n_samples += n_missing
-            samples_free = np.concatenate((samples_free, self._get_sample(n_missing)), axis=0)
+        # n_missing = len(samples)-len(samples_free)
+        # if n_missing > 0:
+        #     # _ = self.sampler_fct.fast_forward(self.n_samples)  # TODO: unsure if necessary
+        #     self.n_samples += n_missing
+        #     samples_free = np.concatenate((samples_free, self._get_sample(n_missing)), axis=0)
         return samples_free
 
     def plot_samples(self, goal: PolygonGoal):
