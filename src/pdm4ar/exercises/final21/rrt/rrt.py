@@ -3,7 +3,6 @@ from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib import cm
 from typing import Sequence, Optional, Callable, Dict, List
 from shapely.geometry import Point, LineString
 
@@ -75,7 +74,7 @@ class RRT:
         self.motion_primitives = MotionPrimitives(
             self.sg, MOTION_PRIMITIVE_INPUT_DIVISIONS)
         # self.radius = self.motion_primitives.max_distance_covered
-        self.radius = 10
+        self.radius = radius
 
     def plan_path(self, spacecraft_state: SpacecraftState):
         t_start = time.time()
@@ -143,12 +142,11 @@ class RRT:
         for idx in distance_idx_sorted:
             self._update_graph(idx)
 
-
         if plot:
             ax = self._draw_obstacles()
             self._plotter(ax)
 
-        rrt_path = self._get_optimal_rrt_path(plot)
+        rrt_path = self._get_optimal_rrt_path()
         return self._rrt_path_improvement(rrt_path)
 
     def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]) -> List[SpacecraftTrajectory]:
@@ -252,7 +250,25 @@ class RRT:
         if not X_near_idx_prune:
             return
 
-        x_nearest = self.tree_idx[X_near_idx_prune[0]]
+        # collect the samples within range, if no tree points in the radius, terminate update
+        near_nodes = [self.tree_idx[idx] for idx in X_near_idx_prune]
+
+        # init x_min and its cost
+        x_min = None
+        c_min = np.inf  # x_new.cost
+
+        # check for all samples within radius which results in the smallest cost to reach the new sample
+        for x_near in near_nodes:
+            collision_free = self.sampler.collision_checker.path_collision_free(x_near.pos, x_rand)
+            line_cost = self.cost_fct(x_near.pos, x_rand)
+            if collision_free and x_near.cost + line_cost < c_min:
+                x_min = x_near
+                c_min = x_near.cost + line_cost
+
+        # if no feasible path could be found, terminate update
+        if not x_min:
+            return
+
         goal_state = SpacecraftState(x=x_rand[0],
                                      y=x_rand[1],
                                      psi=0,
@@ -262,28 +278,9 @@ class RRT:
 
         # add new node to tree
         x_new = Node(state=goal_state,
-                     cost=x_nearest.cost +
-                          self.cost_fct(x_nearest.pos, x_rand))
+                     cost=c_min)
         self.tree.add_node(x_new)
         self.tree_idx[x_idx] = x_new
-
-        # collect the samples within range, if no tree points in the radius, terminate update
-        if len(X_near_idx_prune) > 1:
-            near_nodes = [self.tree_idx[idx] for idx in X_near_idx_prune[1:]]
-        else:
-            return
-
-        # init x_min and its cost
-        x_min = x_nearest
-        c_min = x_new.cost
-
-        # check for all samples within radius which results in the smallest cost to reach the new sample
-        for x_near in near_nodes:
-            collision_free = True  # TODO: also add collision check
-            line_cost = self.cost_fct(x_near.pos, x_rand)
-            if collision_free and x_near.cost + line_cost < c_min:
-                x_min = x_near
-                c_min = x_near.cost + line_cost
         self.tree.add_edge(x_min,
                            x_new,
                            trajectory=SpacecraftTrajectory(
@@ -291,11 +288,10 @@ class RRT:
 
         # rebuild tree s.t. samples that can be reached with a smaller cost from the x_new are updated
         for x_near in near_nodes:
-            # TODO: also add collision check
-            collision_free = True
+            collision_free = self.sampler.collision_checker.path_collision_free(x_rand, x_near.pos)
             motion_cost = c_min + self.cost_fct(x_rand,
                                                 x_near.pos)  # motion_cost
-            if c_min + motion_cost < x_near.cost:
+            if c_min + motion_cost < x_near.cost and collision_free:
                 x_parent = self.tree.predecessors(x_near)
                 self.tree.remove_edge(next(x_parent), x_near)
                 self.tree.add_edge(x_new,
@@ -304,7 +300,7 @@ class RRT:
                                        [], [x_new.state, x_near.state], 0, 0,
                                        0))
 
-    def _get_optimal_rrt_path(self, plot: bool = True) -> List[Node]:
+    def _get_optimal_rrt_path(self) -> List[Node]:
         # get all points in the goal region
         sample_mask = [
             self.goal.goal.contains(Point(pc_point))

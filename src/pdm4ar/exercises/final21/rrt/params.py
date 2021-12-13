@@ -3,7 +3,7 @@ import numpy as np
 
 CONSTRAIN_ACC: int = 10
 CONSTRAIN_VEL_LIN: int = 50
-CONSTRAIN_VEL_ANG: float = 2 * np.pi  #2 * np.pi
+CONSTRAIN_VEL_ANG: float = 2 * np.pi
 
 # Motion primitives
 DELTAT_LIMIT = .5
@@ -15,6 +15,8 @@ MAX_ABS_ACC_DIFF: float = 2
 MAX_GOAL_VEL: float = .1
 
 # Prune RRT path
-MIN_CURVATURE = 0.01
-PRUNE_ITERATIONS = 2
+MIN_CURVATURE = 1e-3
+PRUNE_ITERATIONS = 1
 
+# Buffer (Inflate) Obstacles by Distance
+BUFFER_DISTANCE = 1
