@@ -91,8 +91,7 @@ class MotionPrimitives:
         t_final = np.array([t.states[-1].x, t.states[-1].y])
         continuous_final = np.array(
             [continuous.states[-1].x, continuous.states[-1].y])
-        return continuous.get_cost(), continuous, np.linalg.norm(
-            t_final - continuous_final)
+        return continuous.get_cost(), continuous #np.linalg.norm( t_final - continuous_final)
 
     def _discretize_state(self, state: SpacecraftState) -> SpacecraftState:
         def closest(value: float, steps: np.ndarray) -> float:
@@ -102,7 +101,7 @@ class MotionPrimitives:
 
         limit_vel = self.motion_constrains.limit_vel
         limit_dpsi = self.motion_constrains.limit_dpsi
-        steps = 5
+        steps = 10
         return SpacecraftState(
             x=0,
             y=0,
