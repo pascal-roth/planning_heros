@@ -3,16 +3,17 @@ from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from typing import Sequence, Optional, Callable, Dict, List
+from typing import Sequence, Optional, Callable, Dict
+from shapely.geometry import Point
 
 from dg_commons.planning import PolygonGoal
 from dg_commons.sim.models.obstacles import StaticObstacle
 from dg_commons.sim.models.spacecraft import SpacecraftState
 from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
+
 from pdm4ar.exercises.final21.rrt.motion_primitives import MotionPrimitives, SpacecraftTrajectory
 from pdm4ar.exercises.final21.rrt.params import MOTION_PRIMITIVE_INPUT_DIVISIONS, STEERING_MAX_DIST
-
 from pdm4ar.exercises.final21.rrt.sampler import Sampler
 from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
@@ -39,9 +40,9 @@ class RRT:
                  goal: PolygonGoal,
                  static_obstacles: Sequence[StaticObstacle],
                  sg: SpacecraftGeometry,
-                 n_samples: int = 500,
+                 n_samples: int = 1000,
                  distance_metric: DistanceMetric = DistanceMetric.L2,
-                 radius: Optional[float] = 30):
+                 radius: Optional[float] = 10):
         """
         :param goal:                Goal Polygon
         :param static_obstacles:    Obstacles in the given environment, note that obstacle 0 is the boundary of the
@@ -59,20 +60,22 @@ class RRT:
         # self.sampler.plot_samples(self.goal)
 
         # init distance calculation (atm with brute force distance and euclidean distance)
-        self.radius: Optional[float] = radius
         self.distance = Distance(distance_metric)
 
-        # TODO: init movement primitives
-        # TODO: init a proper cost class, that takes time and distance into account
         self.cost_fct: Callable = euclidean_cost
 
         self.tree = nx.DiGraph()
-
+        self.tree_idx: Dict[int, Node] = {}
         self.motion_primitives = MotionPrimitives(
             self.sg, MOTION_PRIMITIVE_INPUT_DIVISIONS)
         self.radius = self.motion_primitives.max_distance_covered
 
-    def plan_path(self, spacecraft_state: SpacecraftState, plot: bool = True):
+    def plan_path(self, spacecraft_state: SpacecraftState):
+        rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
+        motion_path = self.plan_motion_path(rrt_path)
+        return motion_path
+
+    def plan_rrt_path(self, spacecraft_state: SpacecraftState, plot: bool = True):
         t_start = time.time()
 
         # add start point to point-cloud (pc)
@@ -80,12 +83,11 @@ class RRT:
 
         # build kdtree and determine distance of each point from Spacecraft
         self.distance.init_tree(self.sampler.pc2array())
-        distance = self.distance.get_distance(
-            root_idx, point_cloud=self.sampler.pc2array())
-        # distance_idx_sorted = np.argsort(distance)
+        distance = self.distance.get_distance(root_idx, point_cloud=self.sampler.pc2array())
+        distance_idx_sorted = np.argsort(distance)
 
-        for i in range(len(distance)):
-            self._update_graph(i)
+        for idx in distance_idx_sorted:
+            self._update_graph(idx)
 
         print(f'Building RRT* map in {time.time() - t_start:.2f}s')
 
@@ -93,10 +95,10 @@ class RRT:
             ax = self._draw_obstacles()
             self._plotter(ax)
 
-        # TODO: get optimal plan
+        return self._get_optimal_rrt_path(plot)
 
-        # TODO: reuse part of the sample state has not been changed due to moving obstacle or movement of the spacecraft
-        # self.tree = {}
+    def plan_motion_path(self):
+        pass
 
     def refine_path(self, n_samples: int) -> None:
         # function not tested
@@ -107,52 +109,43 @@ class RRT:
             self._update_graph(x_rand_idx)
 
     def _add_root(self, spacecraft_state: SpacecraftState) -> int:
-        x_start = np.expand_dims(np.array(
-            [spacecraft_state.x, spacecraft_state.y]),
-                                 axis=0)
-        self.tree.add_node(Node(cost=0., state=spacecraft_state))
+        x_start = np.expand_dims(np.array([spacecraft_state.x, spacecraft_state.y]), axis=0)
         root_idx = self.sampler.point_cloud_idx_latest
+        node = Node(cost=0., state=spacecraft_state)
+        self.tree.add_node(node)
         self.sampler.add_sample(x_start)
+        self.tree_idx[root_idx] = node
         return root_idx
 
     def _update_graph(self, x_idx):
         x_rand = self.sampler.point_cloud[x_idx]
+        X_near_idx = self.distance.tree.query_ball_point(x_rand, r=self.radius, workers=-1)
+        X_near_mask = [x_near_idx in self.tree_idx.keys() for x_near_idx in X_near_idx]
+        X_near_idx_prune = [X_near_idx[idx] for idx, x_mask in enumerate(X_near_mask) if x_mask]
 
-        # calculate x_new as the point closest to x_rand that can be reached with a movement primitive without
-        # collision, in the following it is assumed that a collision free path is possible
-        x_nearest = self._nearest_on_tree(x_rand)
-        if np.linalg.norm(x_nearest.pos - x_rand) > self.radius:
+        # if not sample close to x_rand in the tree, terminate update
+        if not X_near_idx_prune:
             return
+
+        x_nearest = self.tree_idx[X_near_idx_prune[0]]
         goal_state = SpacecraftState(x=x_rand[0],
                                      y=x_rand[1],
                                      psi=0,
                                      vx=0,
                                      vy=0,
                                      dpsi=0)
-        x_new_dist, trajectory = self.motion_primitives.distance(
-            x_nearest.state, goal_state)
-        if trajectory.get_dist() > STEERING_MAX_DIST:
-            print(f"rejected: x_new_dist: {x_new_dist}")
-            return
 
-        x_new = Node(state=trajectory.states[-1],
-                     cost=x_nearest.cost + trajectory.get_cost())
-
-        # collect closest sample and all samples within distance eth=radius
-        # TODO: update the radius dynamically with maximum distance that can be reached by movement primitive and
-        #  that log(n) samples are included in it
-        near_nodes = self._near_on_tree(
-            x_new, self.radius, lambda n1, n2: self.motion_primitives.distance(
-                n1.state, n2.state)[0])
-
+        # add new node to tree
+        x_new = Node(state=goal_state,
+                     cost=x_nearest.cost + self.cost_fct(x_nearest.pos, x_rand))
         self.tree.add_node(x_new)
+        self.tree_idx[x_idx] = x_new
 
-        # check if x_near in the tree otherwise set it to start
-        # additional_cost = 0
-        # if not self.tree.get(x_near_idx):
-        #     x_near_idx = self.sampler.point_cloud_idx_latest - 1
-        #     if x_near_idx not in X_near_idx:  # additional cost just necessary until movement primitives and proper cost
-        #         additional_cost = 1000
+        # collect the samples within range, if no tree points in the radius, terminate update
+        if len(X_near_idx_prune) > 1:
+            near_nodes = [self.tree_idx[idx] for idx in X_near_idx_prune[1:]]
+        else:
+            return
 
         # init x_min and its cost
         x_min = x_nearest
@@ -160,47 +153,36 @@ class RRT:
 
         # check for all samples within radius which results in the smallest cost to reach the new sample
         for x_near in near_nodes:
-            collision_free = True
-            line_cost, _ = self.motion_primitives.distance(
-                x_near.state, x_new.state)
+            collision_free = True  # TODO: also add collision check
+            line_cost = self.cost_fct(x_near.pos, x_rand)
             if collision_free and x_near.cost + line_cost < c_min:
                 x_min = x_near
                 c_min = x_near.cost + line_cost
+        self.tree.add_edge(x_min, x_new, trajectory=SpacecraftTrajectory([], [x_min.state, x_new.state], 0, 0, 0))
 
-        self.tree.add_edge(x_min, x_new, trajectory=trajectory)
         # rebuild tree s.t. samples that can be reached with a smaller cost from the x_new are updated
         for x_near in near_nodes:
             # TODO: also add collision check
             collision_free = True
-            motion_cost, trajectory = self.motion_primitives.distance(
-                x_new.state, x_near.state)
-            line_cost = c_min + motion_cost
+            motion_cost = c_min + self.cost_fct(x_rand, x_near.pos)  # motion_cost
             if c_min + motion_cost < x_near.cost:
                 x_parent = self.tree.predecessors(x_near)
-                # TODO: somehow without this check we get an error, investigate why
-                if self.tree.has_edge(x_parent, x_near):
-                    self.tree.remove_edge(x_parent, x_near)
-                self.tree.add_edge(x_new, x_near, trajectory=trajectory)
+                self.tree.remove_edge(next(x_parent), x_near)
+                self.tree.add_edge(x_new, x_near, trajectory=SpacecraftTrajectory([], [x_new.state, x_near.state], 0, 0, 0))
 
-    def _nearest_on_tree(self, pos: np.ndarray) -> Node:
-        # TODO replace brute force distance search
-        min_dist = np.inf
-        nearest = None
-        for node in self.tree.nodes:
-            dist = self.distance.dist(node.pos, pos)
-            if dist < min_dist:
-                min_dist = dist
-                nearest = node
-        return nearest
+    def _get_optimal_rrt_path(self, plot: bool = True):
+        # get all points in the goal region
+        sample_mask = [self.goal.goal.contains(Point(pc_point)) for pc_point in self.sampler.point_cloud.values()]
+        goal_nodes = [self.tree_idx[idx] for idx in self.tree_idx.keys() if sample_mask[idx]]
+        goal_costs = [node.cost for node in goal_nodes]
+        goal_node = goal_nodes[np.argmin(goal_costs)]
 
-    def _near_on_tree(self, center: Node, radius: float,
-                      metric: Callable[[Node, Node], float]) -> List[Node]:
-        # TODO replace brute force distance search
-        near: List[Node] = []
-        for node in self.tree.nodes:
-            if metric(node, center) < radius:
-                near.append(node)
-        return near
+        rrt_path = [goal_node]
+        current_node = goal_node
+        while 0:
+            rrt_path.append()
+
+        return rrt_path
 
     def _draw_obstacles(self):
         matplotlib.use('TkAgg')

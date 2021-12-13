@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 import matplotlib
 from typing import Sequence, Dict, List
 from scipy.stats import qmc
-from shapely.geometry import Point
 
 from dg_commons.sim.models.obstacles import StaticObstacle
 from dg_commons.planning import PolygonGoal
@@ -38,7 +37,6 @@ class Sampler:
         # point_cloud in the given environment
         self.point_cloud_idx_latest: int = n_samples
         self.point_cloud: Dict[int, np.ndarray] = self._init_point_cloud()
-
 
     def draw_samples(self, n_samples: int = 1) -> List[int]:
         """
@@ -96,11 +94,11 @@ class Sampler:
 
         # Max: removed due to unnecessary allocations, just add more sample instead
         # if any points in obstacles, get new points of sequence and advance the sequence
-        # n_missing = len(samples)-len(samples_free)
-        # if n_missing > 0:
-        #     # _ = self.sampler_fct.fast_forward(self.n_samples)  # TODO: unsure if necessary
-        #     self.n_samples += n_missing
-        #     samples_free = np.concatenate((samples_free, self._get_sample(n_missing)), axis=0)
+        n_missing = len(samples)-len(samples_free)
+        if n_missing > 0:
+            # _ = self.sampler_fct.fast_forward(self.n_samples)  # TODO: unsure if necessary
+            self.n_samples += n_missing
+            samples_free = np.concatenate((samples_free, self._get_sample(n_missing)), axis=0)
         return samples_free
 
     def plot_samples(self, goal: PolygonGoal):
