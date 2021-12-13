@@ -39,7 +39,7 @@ class RRT:
                  goal: PolygonGoal,
                  static_obstacles: Sequence[StaticObstacle],
                  sg: SpacecraftGeometry,
-                 n_samples: int = 500,
+                 n_samples: int =1000,
                  distance_metric: DistanceMetric = DistanceMetric.L2,
                  radius: Optional[float] = 30):
         """
@@ -82,9 +82,9 @@ class RRT:
         self.distance.init_tree(self.sampler.pc2array())
         distance = self.distance.get_distance(
             root_idx, point_cloud=self.sampler.pc2array())
-        # distance_idx_sorted = np.argsort(distance)
+        distance_idx_sorted = np.argsort(distance)
 
-        for i in range(len(distance)):
+        for i in distance_idx_sorted:
             self._update_graph(i)
 
         print(f'Building RRT* map in {time.time() - t_start:.2f}s')
@@ -121,8 +121,8 @@ class RRT:
         # calculate x_new as the point closest to x_rand that can be reached with a movement primitive without
         # collision, in the following it is assumed that a collision free path is possible
         x_nearest = self._nearest_on_tree(x_rand)
-        if np.linalg.norm(x_nearest.pos - x_rand) > self.radius:
-            return
+        # if np.linalg.norm(x_nearest.pos - x_rand) > self.radius:
+        #     return
         goal_state = SpacecraftState(x=x_rand[0],
                                      y=x_rand[1],
                                      psi=0,
@@ -131,10 +131,14 @@ class RRT:
                                      dpsi=0)
         x_new_dist, trajectory = self.motion_primitives.distance(
             x_nearest.state, goal_state)
-        if trajectory.get_dist() > STEERING_MAX_DIST:
-            print(f"rejected: x_new_dist: {x_new_dist}")
+        dist = np.linalg.norm(x_rand - np.array([trajectory.states[-1].x, trajectory.states[-1].y]))
+        if dist > STEERING_MAX_DIST:
+            # print(f"rejected: x_new_dist: {x_new_dist}")
             return
-
+        print(x_nearest.state)
+        print(trajectory.states[0])
+        command = trajectory.commands[-1]
+        print(f"command: {command}")
         x_new = Node(state=trajectory.states[-1],
                      cost=x_nearest.cost + trajectory.get_cost())
 
@@ -157,17 +161,20 @@ class RRT:
         # init x_min and its cost
         x_min = x_nearest
         c_min = x_new.cost
-
+        min_trajectory = trajectory
         # check for all samples within radius which results in the smallest cost to reach the new sample
         for x_near in near_nodes:
             collision_free = True
-            line_cost, _ = self.motion_primitives.distance(
+            line_cost, min_trajectory = self.motion_primitives.distance(
                 x_near.state, x_new.state)
             if collision_free and x_near.cost + line_cost < c_min:
                 x_min = x_near
                 c_min = x_near.cost + line_cost
 
-        self.tree.add_edge(x_min, x_new, trajectory=trajectory)
+        self.tree.add_edge(x_min, x_new, trajectory=min_trajectory)
+        
+        # ax = self._draw_obstacles()
+        # self._plotter(ax)
         # rebuild tree s.t. samples that can be reached with a smaller cost from the x_new are updated
         for x_near in near_nodes:
             # TODO: also add collision check
@@ -221,13 +228,18 @@ class RRT:
         ax.set_aspect("equal")
         return ax
 
-    def _plotter(self, ax):
+    def _plotter(self, ax, draw_labels=False):
         pos = {node: node.pos for node in self.tree.nodes}
         nx.draw_networkx_nodes(self.tree, pos, node_size=100)
+        edge_labels = dict()
         for from_node, to_node, data in self.tree.edges(data=True):
             if "trajectory" in data:
                 trajectory: SpacecraftTrajectory = data["trajectory"]
-                pos = np.array([[s.x, s.y] for s in trajectory.states])
-                plt.plot(pos[:, 0], pos[:, 1], color="orange", zorder=100)
+                traj_pos= np.array([[s.x, s.y] for s in trajectory.states])
+                plt.plot(traj_pos[:, 0], traj_pos[:, 1], color="orange", zorder=100)
+                command = trajectory.commands[-1]
+                edge_labels[(from_node, to_node)] = f"({command.acc_left:.1f}, {command.acc_right:.1f})"
+        if draw_labels:
+            nx.draw_networkx_edge_labels(self.tree, pos=pos, edge_labels=edge_labels)
         ax.set_title(f'added {self.n_samples} samples')
         plt.show()
