@@ -13,7 +13,8 @@ from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
 
 from pdm4ar.exercises.final21.rrt.motion_primitives import MotionPrimitives, SpacecraftTrajectory
-from pdm4ar.exercises.final21.rrt.params import MAX_GOAL_VEL, MOTION_PRIMITIVE_INPUT_DIVISIONS, STEERING_MAX_DIST
+from pdm4ar.exercises.final21.rrt.params import MAX_GOAL_VEL, MOTION_PRIMITIVE_INPUT_DIVISIONS, MIN_CURVATURE, \
+    PRUNE_ITERATIONS
 from pdm4ar.exercises.final21.rrt.sampler import Sampler
 from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
@@ -70,16 +71,20 @@ class RRT:
         self.tree_idx: Dict[int, Node] = {}
         self.motion_primitives = MotionPrimitives(
             self.sg, MOTION_PRIMITIVE_INPUT_DIVISIONS)
-        self.radius = self.motion_primitives.max_distance_covered
+        # self.radius = self.motion_primitives.max_distance_covered
+        self.radius = 10
 
     def plan_path(self, spacecraft_state: SpacecraftState):
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
         motion_path = self.plan_motion_path(spacecraft_state, rrt_path)
+        # clear tree_idx and tree
+        self.tree_idx = {}
+        self.tree = nx.DiGraph
         # plot
         ax = self._draw_obstacles()
         # plot rrt_path
         pos = np.array([node.pos for node in rrt_path])
-        plt.plot(pos[:, 0], pos[:, 1], color="red", zorder=100)
+        plt.plot(pos[:, 0], pos[:, 1], color="red", zorder=100, marker='*')
 
         # plot motion path
         for trajectory in motion_path:
@@ -112,7 +117,8 @@ class RRT:
             ax = self._draw_obstacles()
             self._plotter(ax)
 
-        return self._get_optimal_rrt_path(plot)
+        rrt_path = self._get_optimal_rrt_path(plot)
+        return self._rrt_path_improvement(rrt_path)
 
     def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]):
         rrt_line = LineString([node.pos for node in rrt_path])
@@ -129,7 +135,7 @@ class RRT:
         def is_goal(state: SpacecraftState) -> bool:
             in_goal = self.goal.goal.contains(Point([state.x, state.y]))
             speed = np.linalg.norm([state.vx, state.vy])
-            slow =  speed < MAX_GOAL_VEL
+            slow = speed < MAX_GOAL_VEL
             if is_goal and not slow:
                 print(f"too fast: {speed}")
             return in_goal and slow
@@ -180,18 +186,10 @@ class RRT:
                         frontier, (new_cost + heuristic(end_state), end_state))
         return []
 
-    def refine_path(self, n_samples: int) -> None:
-        # function not tested
-        x_rand_idx = self.sampler.draw_samples(n_samples)
-        self.distance.init_tree(self.sampler.pc2array())
-
-        for idx in range(n_samples):
-            self._update_graph(x_rand_idx)
-
     def _add_root(self, spacecraft_state: SpacecraftState) -> int:
         x_start = np.expand_dims(np.array(
             [spacecraft_state.x, spacecraft_state.y]),
-                                 axis=0)
+            axis=0)
         root_idx = self.sampler.point_cloud_idx_latest
         node = Node(cost=0., state=spacecraft_state)
         self.tree.add_node(node)
@@ -226,7 +224,7 @@ class RRT:
         # add new node to tree
         x_new = Node(state=goal_state,
                      cost=x_nearest.cost +
-                     self.cost_fct(x_nearest.pos, x_rand))
+                          self.cost_fct(x_nearest.pos, x_rand))
         self.tree.add_node(x_new)
         self.tree_idx[x_idx] = x_new
 
@@ -290,6 +288,20 @@ class RRT:
             except StopIteration:
                 break
         rrt_path.reverse()
+        return rrt_path
+
+    def _rrt_path_improvement(self, rrt_path: List[Node]):
+        # remove point of the path if curvature is smaller than a threshold
+        for i in range(PRUNE_ITERATIONS):
+            path_mask = [True]
+            for idx in range(1, len(rrt_path) - 1, 1):
+                coeff = np.polyfit(x=[rrt_path[idx - 1].state.x, rrt_path[idx].state.x, rrt_path[idx + 1].state.x],
+                                   y=[rrt_path[idx - 1].state.y, rrt_path[idx].state.y, rrt_path[idx + 1].state.y],
+                                   deg=2)
+                path_mask.append(True) if coeff[0] > MIN_CURVATURE/2 else path_mask.append(False)
+            path_mask.append(True)
+            rrt_path = [node for idx, node in enumerate(rrt_path) if path_mask[idx]]
+
         return rrt_path
 
     def _draw_obstacles(self):

@@ -13,3 +13,7 @@ STEERING_MAX_DIST: float = 10.
 MAX_ABS_ACC_DIFF: float = 2
 
 MAX_GOAL_VEL: float = 1
+
+# Prune RRT path
+MIN_CURVATURE = 0.01
+PRUNE_ITERATIONS = 2
