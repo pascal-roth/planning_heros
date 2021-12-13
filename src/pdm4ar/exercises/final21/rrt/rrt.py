@@ -121,8 +121,8 @@ class RRT:
         # calculate x_new as the point closest to x_rand that can be reached with a movement primitive without
         # collision, in the following it is assumed that a collision free path is possible
         x_nearest = self._nearest_on_tree(x_rand)
-        # if np.linalg.norm(x_nearest.pos - x_rand) > self.radius:
-        #     return
+        if np.linalg.norm(x_nearest.pos - x_rand) > self.radius:
+            return
         goal_state = SpacecraftState(x=x_rand[0],
                                      y=x_rand[1],
                                      psi=0,
@@ -131,9 +131,9 @@ class RRT:
                                      dpsi=0)
         x_new_dist, trajectory = self.motion_primitives.distance(
             x_nearest.state, goal_state)
-        # if trajectory.get_dist() > STEERING_MAX_DIST:
-        #     print(f"rejected: x_new_dist: {x_new_dist}")
-        #     return
+        if trajectory.get_dist() > STEERING_MAX_DIST:
+            print(f"rejected: x_new_dist: {x_new_dist}")
+            return
 
         x_new = Node(state=trajectory.states[-1],
                      cost=x_nearest.cost + trajectory.get_cost())
@@ -168,7 +168,6 @@ class RRT:
                 c_min = x_near.cost + line_cost
 
         self.tree.add_edge(x_min, x_new, trajectory=trajectory)
-        return
         # rebuild tree s.t. samples that can be reached with a smaller cost from the x_new are updated
         for x_near in near_nodes:
             # TODO: also add collision check

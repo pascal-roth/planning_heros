@@ -8,4 +8,4 @@ CONSTRAIN_VEL_ANG: float = 2 * np.pi
 # Motion primitives
 DELTAT_LIMITS = (.75, 2.)
 MOTION_PRIMITIVE_INPUT_DIVISIONS: int = 5
-STEERING_MAX_DIST: float = 10.
+STEERING_MAX_DIST: float = 5.
