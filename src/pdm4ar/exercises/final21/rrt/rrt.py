@@ -75,7 +75,13 @@ class RRT:
     def plan_path(self, spacecraft_state: SpacecraftState):
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
         motion_path = self.plan_motion_path(spacecraft_state, rrt_path)
+        # plot
         ax = self._draw_obstacles()
+        # plot rrt_path
+        pos = np.array([node.pos for node in rrt_path])
+        plt.plot(pos[:, 0], pos[:, 1], color="red", zorder=100)
+
+        # plot motion path
         for trajectory in motion_path:
             if trajectory is not None:
                 pos = np.array([[s.x, s.y] for s in trajectory.states])
@@ -110,7 +116,7 @@ class RRT:
 
     def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]):
         rrt_line = LineString([node.pos for node in rrt_path])
-        # uniform cost search aka. Dijkstra's algorithm
+        # A*
         state = start
         costs = defaultdict(lambda: np.inf)
         costs[state] = 0
@@ -122,8 +128,11 @@ class RRT:
 
         def is_goal(state: SpacecraftState) -> bool:
             in_goal = self.goal.goal.contains(Point([state.x, state.y]))
-            slow = np.linalg.norm([state.vx, state.vy]) < MAX_GOAL_VEL
-            return in_goal
+            speed = np.linalg.norm([state.vx, state.vy])
+            slow =  speed < MAX_GOAL_VEL
+            if is_goal and not slow:
+                print(f"too fast: {speed}")
+            return in_goal and slow
 
         def cost(primitive: SpacecraftTrajectory) -> float:
             primitive_pos = np.array([[state.x, state.y]
@@ -138,12 +147,14 @@ class RRT:
             norms = np.linalg.norm(projected_np - primitive_pos, axis=1)
             return np.max(norms)
 
-        def heuristic(state:SpacecraftState) -> float:
-            return np.linalg.norm(rrt_path[-1].pos - np.array([state.x, state.y]))
+        def heuristic(state: SpacecraftState) -> float:
+            return np.linalg.norm(rrt_path[-1].pos -
+                                  np.array([state.x, state.y]))
 
         while len(frontier) > 0:
             prio, state = heapq.heappop(frontier)
-            goal_dist = np.linalg.norm(rrt_path[-1].pos - np.array([state.x, state.y]))
+            goal_dist = np.linalg.norm(rrt_path[-1].pos -
+                                       np.array([state.x, state.y]))
             print(prio, goal_dist)
             if is_goal(state):
                 path = []
@@ -159,14 +170,14 @@ class RRT:
                     motion_path.append(primitives[p])
                 return motion_path
             for primitive in self.motion_primitives.get_primitives_from(state):
-                # new_cost = costs[state] + cost(primitive)
                 end_state = primitive.states[-1]
-                new_cost = heuristic(end_state)
+                new_cost = costs[state] + cost(primitive)
                 primitives[end_state] = primitive
                 if new_cost < costs[end_state]:
                     costs[end_state] = new_cost
                     parents[end_state] = state
-                    heapq.heappush(frontier, (new_cost, end_state))
+                    heapq.heappush(
+                        frontier, (new_cost + heuristic(end_state), end_state))
         return []
 
     def refine_path(self, n_samples: int) -> None:

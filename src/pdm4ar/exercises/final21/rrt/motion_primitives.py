@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 
 from pdm4ar.exercises.final21.rrt.motion_constrains import MotionConstrains
-from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT_LIMITS, MAX_ABS_ACC_DIFF
+from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT_LIMITS, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS
 from scipy.spatial import KDTree
 
 
@@ -103,7 +103,7 @@ class MotionPrimitives:
 
         limit_vel = self.motion_constrains.limit_vel
         limit_dpsi = self.motion_constrains.limit_dpsi
-        steps = 5
+        steps = MOTION_PRIMITIVE_STATE_DIVISIONS
         return SpacecraftState(
             x=0,
             y=0,
