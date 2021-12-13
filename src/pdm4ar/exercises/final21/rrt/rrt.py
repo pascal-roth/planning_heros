@@ -3,6 +3,7 @@ from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib import cm
 from typing import Sequence, Optional, Callable, Dict, List
 from shapely.geometry import Point, LineString
 
@@ -18,6 +19,8 @@ from pdm4ar.exercises.final21.rrt.params import MAX_GOAL_VEL, MOTION_PRIMITIVE_I
 from pdm4ar.exercises.final21.rrt.sampler import Sampler
 from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
+
+from scipy import interpolate
 
 import networkx as nx
 import heapq
@@ -75,8 +78,10 @@ class RRT:
         self.radius = 10
 
     def plan_path(self, spacecraft_state: SpacecraftState):
+        t_start = time.time()
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
         motion_path = self.plan_motion_path(spacecraft_state, rrt_path)
+        print(f'Motion Path Constructed in {time.time() - t_start:.2f}s')
         # clear tree_idx and tree
         self.tree_idx = {}
         self.tree = nx.DiGraph
@@ -90,14 +95,41 @@ class RRT:
         for trajectory in motion_path:
             if trajectory is not None:
                 pos = np.array([[s.x, s.y] for s in trajectory.states])
-                plt.plot(pos[:, 0], pos[:, 1], color="orange", zorder=100)
+                # vel = np.array(
+                #     [np.linalg.norm([s.vx, s.vy]) for s in trajectory.states])
+                # vel /= np.max(vel)
+                # plt.scatter(pos[:, 0],
+                #             pos[:, 1],
+                #             c=cm.viridis(vel),
+                #             zorder=100,
+                #             edgecolor="none")
+                plt.plot(pos[:, 0], pos[:, 1], zorder=90)
+        plt.show()    
+        plt.figure()
+        t = 0
+        inputs = []
+        vel = []
+        for trajectory in motion_path:
+            if trajectory is not None:
+                l = trajectory.commands[0].acc_left
+                r = trajectory.commands[0].acc_right
+                inputs.append([t, l, r])
+                for i, state in enumerate(trajectory.states):
+                    v = np.linalg.norm([state.vx, state.vy])
+                    vel.append([t + (i / len(trajectory.states))* trajectory.tf, v])
+                t += trajectory.tf
+        inputs = np.array(inputs)
+        vel = np.array(vel)
+        plt.plot(inputs[:, 0], inputs[:, 1], label="left")
+        plt.plot(inputs[:, 0], inputs[:, 2], label="right")
+        plt.plot(vel[:, 0], vel[:, 1], label="velocity")
+        plt.legend()
         plt.show()
         return motion_path
 
     def plan_rrt_path(self,
                       spacecraft_state: SpacecraftState,
-                      plot: bool = True) -> List[Node]:
-        t_start = time.time()
+                      plot: bool = False) -> List[Node]:
 
         # add start point to point-cloud (pc)
         root_idx = self._add_root(spacecraft_state)
@@ -111,7 +143,6 @@ class RRT:
         for idx in distance_idx_sorted:
             self._update_graph(idx)
 
-        print(f'Building RRT* map in {time.time() - t_start:.2f}s')
 
         if plot:
             ax = self._draw_obstacles()
@@ -120,7 +151,7 @@ class RRT:
         rrt_path = self._get_optimal_rrt_path(plot)
         return self._rrt_path_improvement(rrt_path)
 
-    def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]):
+    def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]) -> List[SpacecraftTrajectory]:
         rrt_line = LineString([node.pos for node in rrt_path])
         # A*
         state = start
@@ -136,7 +167,8 @@ class RRT:
             in_goal = self.goal.goal.contains(Point([state.x, state.y]))
             speed = np.linalg.norm([state.vx, state.vy])
             slow = speed < MAX_GOAL_VEL
-            if is_goal and not slow:
+
+            if in_goal and not slow:
                 print(f"too fast: {speed}")
             return in_goal and slow
 
@@ -151,18 +183,25 @@ class RRT:
             projected_np = np.array([[point.x, point.y]
                                      for point in projected])
             norms = np.linalg.norm(projected_np - primitive_pos, axis=1)
-            return np.max(norms)
+            vel = np.array([np.abs([state.vx, state.vy]) for state in primitive.states])
+            return np.max(norms)**2 + np.max(vel)
 
         def heuristic(state: SpacecraftState) -> float:
             return np.linalg.norm(rrt_path[-1].pos -
                                   np.array([state.x, state.y]))
 
+        i = 0
         while len(frontier) > 0:
             prio, state = heapq.heappop(frontier)
-            goal_dist = np.linalg.norm(rrt_path[-1].pos -
-                                       np.array([state.x, state.y]))
-            print(prio, goal_dist)
+            i += 1
+            if i % 100 == 0:
+                print(
+                    f"{i}: priority: {prio:.2f}, cost: {costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
+                )
             if is_goal(state):
+                print(
+                    f"{i}: priority: {prio:.2f}, cost: {costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
+                )
                 path = []
                 p = state
                 while True:
@@ -177,13 +216,13 @@ class RRT:
                 return motion_path
             for primitive in self.motion_primitives.get_primitives_from(state):
                 end_state = primitive.states[-1]
-                new_cost = costs[state] + cost(primitive)
+                new_cost = np.max([costs[state], cost(primitive)])
                 primitives[end_state] = primitive
+                f = new_cost + heuristic(end_state)
                 if new_cost < costs[end_state]:
                     costs[end_state] = new_cost
                     parents[end_state] = state
-                    heapq.heappush(
-                        frontier, (new_cost + heuristic(end_state), end_state))
+                    heapq.heappush(frontier, (f, end_state))
         return []
 
     def _add_root(self, spacecraft_state: SpacecraftState) -> int:
