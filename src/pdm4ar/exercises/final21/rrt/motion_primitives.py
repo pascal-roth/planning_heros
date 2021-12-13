@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 
 from pdm4ar.exercises.final21.rrt.motion_constrains import MotionConstrains
-from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT_LIMITS, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS
+from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT_LIMIT, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS
 from scipy.spatial import KDTree
 
 
@@ -107,7 +107,7 @@ class MotionPrimitives:
         return SpacecraftState(
             x=0,
             y=0,
-            psi=closest(state.psi, np.linspace(0, 2 * np.pi, steps)),
+            psi=closest(state.psi, np.linspace(0, 2 * np.pi, 2*steps)[:-1]) ,
             vx=closest(state.vx, np.linspace(limit_vel[0], limit_vel[1],
                                              steps)),
             vy=closest(state.vy, np.linspace(limit_vel[0], limit_vel[1],
@@ -119,21 +119,21 @@ class MotionPrimitives:
             self, state: SpacecraftState) -> List[SpacecraftTrajectory]:
         input_limits = self.motion_constrains.limit_acc
         acc = np.linspace(input_limits[0], input_limits[1], self.steps)
-        dts = np.linspace(DELTAT_LIMITS[0], DELTAT_LIMITS[1], self.steps)
+        # dts = np.linspace(DELTAT_LIMITS[0], DELTAT_LIMITS[1], self.steps)
         acc_left, acc_right = np.meshgrid(acc, acc)
         primitives = []
 
-        for k in range(dts.shape[0]):
-            dt = dts[k]
-            for i in range(acc_left.shape[0]):
-                for j in range(acc_left.shape[1]):
-                    acc_diff = np.abs(acc_left[i, j] - acc_right[i, j])
-                    if acc_diff > MAX_ABS_ACC_DIFF:
-                        continue
-                    command = SpacecraftCommands(acc_left[i, j], acc_right[i,
-                                                                           j])
-                    trajectory = self._get_trajectory(state, command, dt)
-                    primitives.append(trajectory)
+        # for k in range(dts.shape[0]):
+        #     dt = dts[k]
+        for i in range(acc_left.shape[0]):
+            for j in range(acc_left.shape[1]):
+                acc_diff = np.abs(acc_left[i, j] - acc_right[i, j])
+                if acc_diff > MAX_ABS_ACC_DIFF:
+                    continue
+                command = SpacecraftCommands(acc_left[i, j], acc_right[i,
+                                                                        j])
+                trajectory = self._get_trajectory(state, command, DELTAT_LIMIT)
+                primitives.append(trajectory)
         return primitives
 
     def _get_trajectory(self,
@@ -177,9 +177,9 @@ class MotionPrimitives:
         sol = solve_ivp(fun=dynamics,
                         t_span=(0.0, tf),
                         y0=y0,
-                        vectorized=True,
-                        method="LSODA",
-                        rtol=1e-4)
+                        vectorized=True)
+                        # method="LSODA",
+                        # rtol=1e-5)
 
         assert sol.success, f"Solving the IVP for ({u.acc_left}, {u.acc_right}) failed"
         states: List[SpacecraftState] = []
