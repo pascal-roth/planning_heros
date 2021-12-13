@@ -1,5 +1,6 @@
 from typing import List, Tuple, Dict
 import numpy as np
+import math
 from scipy.integrate import solve_ivp
 from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftState, SpacecraftGeometry
 
@@ -7,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 
 from pdm4ar.exercises.final21.rrt.motion_constrains import MotionConstrains
-from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT_LIMITS
+from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT_LIMITS, MAX_ABS_ACC_DIFF
 from scipy.spatial import KDTree
 
 
@@ -35,7 +36,6 @@ class SpacecraftTrajectory:
             dist += np.linalg.norm(p_pos - c_pos)
         return dist
 
-
     def offset(self, x: float, y: float) -> 'SpacecraftTrajectory':
         return SpacecraftTrajectory(self.commands.copy(), [
             SpacecraftState(state.x + x, state.y + y, state.psi, state.vx,
@@ -60,7 +60,7 @@ class MotionPrimitives:
 
         self.motion_constrains: MotionConstrains = MotionConstrains()
         self.primitives: List[SpacecraftTrajectory] = []
-        self.max_distance_covered = self._max_distance_covered()
+        self.max_distance_covered = 10 # self._max_distance_covered()
 
         self.primitive_database: Dict[str, TrajectoryGroup] = dict()
 
@@ -71,18 +71,28 @@ class MotionPrimitives:
         # get trajectory group and create it if not present
         discrete_repr = repr(discrete)
         if discrete_repr not in self.primitive_database:
-            print(f"building new TrajectoryGroup for {discrete}")
-            self.primitive_database[discrete_repr] = TrajectoryGroup(
-                self._generate_trajectories(discrete))
+            group = TrajectoryGroup(self._generate_trajectories(discrete))
+            print(
+                f"building new TrajectoryGroup of {len(group.trajectories)} primitives for {discrete}"
+            )
+            self.primitive_database[discrete_repr] = group
         traj_group = self.primitive_database[discrete_repr]
 
-        # find closest end state
-        _, closest_idx = traj_group.kdtree.query(
+        # find closest end state, and associated control input
+        dist, closest_idx = traj_group.kdtree.query(
             [end.x - start.x, end.y - start.y])
-        trajectory: SpacecraftTrajectory = traj_group.trajectories[closest_idx]
+        traj_discrete: SpacecraftTrajectory = traj_group.trajectories[
+            closest_idx]
+        t = traj_discrete.offset(start.x, start.y)
 
-        trajectory = trajectory.offset(start.x, start.y)
-        return trajectory.get_cost(), trajectory
+        command_discrete = traj_discrete.commands[-1]
+        continuous = self._get_trajectory(start, command_discrete,
+                                          traj_discrete.tf, traj_discrete.dt)
+        t_final = np.array([t.states[-1].x, t.states[-1].y])
+        continuous_final = np.array(
+            [continuous.states[-1].x, continuous.states[-1].y])
+        return continuous.get_cost(), continuous, np.linalg.norm(
+            t_final - continuous_final)
 
     def _discretize_state(self, state: SpacecraftState) -> SpacecraftState:
         def closest(value: float, steps: np.ndarray) -> float:
@@ -117,6 +127,9 @@ class MotionPrimitives:
             dt = dts[k]
             for i in range(acc_left.shape[0]):
                 for j in range(acc_left.shape[1]):
+                    acc_diff = np.abs(acc_left[i, j] - acc_right[i, j])
+                    if acc_diff > MAX_ABS_ACC_DIFF:
+                        continue
                     command = SpacecraftCommands(acc_left[i, j], acc_right[i,
                                                                            j])
                     trajectory = self._get_trajectory(state, command, dt)
@@ -130,20 +143,14 @@ class MotionPrimitives:
                         dt: float = 0.1) -> SpacecraftTrajectory:
         # express initial state
         y0 = np.array([
-            spacecraft_t0.x, spacecraft_t0.y, spacecraft_t0.vx,
-            spacecraft_t0.vy, spacecraft_t0.psi, spacecraft_t0.dpsi
+            spacecraft_t0.x, spacecraft_t0.y, spacecraft_t0.psi, spacecraft_t0.vx,
+            spacecraft_t0.vy, spacecraft_t0.dpsi
         ])
 
         def dynamics(t, y):
             px, py, vx, vy, psi, dpsi = y
-            # only apply acceleration in the beginning
-            # if t <= dt:
             acc_left = self.motion_constrains.apply_acc_limit(u.acc_left)
             acc_right = self.motion_constrains.apply_acc_limit(u.acc_right)
-            # else:
-            #     acc_left = 0
-            #     acc_right = 0
-
             acc_sum = acc_right + acc_left
             acc_diff = acc_right - acc_left
 
@@ -152,33 +159,41 @@ class MotionPrimitives:
             dx = vx * costh - vy * sinth
             dy = vx * sinth + vy * costh
 
-            dvx = acc_sum + vy * dpsi
-            dvy = -vx * dpsi
+            ax = acc_sum + vy * dpsi
+            ay = -vx * dpsi
             dpsi = psi
             ddpsi = self.sg.w_half * self.sg.m / self.sg.Iz * acc_diff  # need to be saturated first
             ddpsi = self.motion_constrains.apply_dpsi_limit(ddpsi)
 
             ret = np.zeros((6, ))
-            ret[0] = px + dx
-            ret[1] = py + dy
-            ret[2] = dvx
-            ret[3] = dvy
-            ret[4] = dpsi
+            ret[0] = dx
+            ret[1] = dy
+            ret[2] = dpsi
+            ret[3] = ax
+            ret[4] = ay
             ret[5] = ddpsi
+            # assert acc_left == acc_right
+            # assert ret[5] == 0
             return ret
 
-        sol = solve_ivp(fun=dynamics, t_span=(0.0, tf), y0=y0, vectorized=True)
+        sol = solve_ivp(fun=dynamics,
+                        t_span=(0.0, tf),
+                        y0=y0,
+                        vectorized=True,
+                        method="LSODA",
+                        rtol=1e-4)
 
         assert sol.success, f"Solving the IVP for ({u.acc_left}, {u.acc_right}) failed"
-        states: List[SpacecraftState] = [None] * sol.y.shape[1]
+        states: List[SpacecraftState] = []
         for i in range(sol.y.shape[1]):
             s = sol.y[:, i]
-            states[i] = SpacecraftState(x=s[0],
-                                        y=s[1],
-                                        psi=s[4],
-                                        vx=s[2],
-                                        vy=s[3],
-                                        dpsi=s[5])
+            states.append(
+                SpacecraftState(x=s[0],
+                                y=s[1],
+                                psi=s[2],
+                                vx=s[3],
+                                vy=s[4],
+                                dpsi=s[5]))
         return SpacecraftTrajectory([u], states, 0., tf, dt)
 
     def _max_distance_covered(self) -> float:
@@ -189,21 +204,21 @@ class MotionPrimitives:
                                         vy=self.motion_constrains.limit_vel[1],
                                         dpsi=0)
         primitives = self._generate_trajectories(fastest_state)
-        return np.max([trajectory.get_cost() for trajectory in primitives])
+        return np.max([trajectory.get_dist() for trajectory in primitives])
 
-    # def plot_primitives(self):
-    #     plt.figure()
-    #     for trajectory in self.primitives:
-    #         x = [s.x for s in trajectory.states]
-    #         y = [s.y for s in trajectory.states]
-    #         plt.plot(x, y)
-    #     plt.show()
+    def plot_primitives(self, primitives):
+        matplotlib.use("TkAgg")
+        plt.figure()
+        for trajectory in primitives:
+            x = [s.x for s in trajectory.states]
+            y = [s.y for s in trajectory.states]
+            plt.plot(x, y)
+        plt.show()
 
 
 if __name__ == "__main__":
-    matplotlib.use("TkAgg")
     sg = SpacecraftGeometry.default()
     mp = MotionPrimitives(sg)
-    spacecraft_t0 = SpacecraftState(x=0, y=0, psi=0, vx=.5, vy=0, dpsi=0)
-    mp.distance(spacecraft_t0)
-    mp.plot_primitives()
+    spacecraft_t0 = SpacecraftState(x=0, y=0, psi=1, vx=.5, vy=0, dpsi=4)
+    primitives = mp._generate_trajectories(spacecraft_t0)
+    mp.plot_primitives(primitives)
