@@ -90,15 +90,35 @@ class RRT:
         for trajectory in motion_path:
             if trajectory is not None:
                 pos = np.array([[s.x, s.y] for s in trajectory.states])
-                vel = np.array(
-                    [np.linalg.norm([s.vx, s.vy]) for s in trajectory.states])
-                vel /= np.max(vel)
-                plt.scatter(pos[:, 0],
-                            pos[:, 1],
-                            c=cm.viridis(vel),
-                            zorder=100,
-                            edgecolor="none")
-                plt.plot(pos[:, 0], pos[:, 1], color="orange", zorder=90)
+                # vel = np.array(
+                #     [np.linalg.norm([s.vx, s.vy]) for s in trajectory.states])
+                # vel /= np.max(vel)
+                # plt.scatter(pos[:, 0],
+                #             pos[:, 1],
+                #             c=cm.viridis(vel),
+                #             zorder=100,
+                #             edgecolor="none")
+                plt.plot(pos[:, 0], pos[:, 1], zorder=90)
+        plt.show()    
+        plt.figure()
+        t = 0
+        inputs = []
+        vel = []
+        for trajectory in motion_path:
+            if trajectory is not None:
+                l = trajectory.commands[0].acc_left
+                r = trajectory.commands[0].acc_right
+                inputs.append([t, l, r])
+                for i, state in enumerate(trajectory.states):
+                    v = np.linalg.norm([state.vx, state.vy])
+                    vel.append([t + (i / len(trajectory.states))* trajectory.tf, v])
+                t += trajectory.tf
+        inputs = np.array(inputs)
+        vel = np.array(vel)
+        plt.plot(inputs[:, 0], inputs[:, 1], label="left")
+        plt.plot(inputs[:, 0], inputs[:, 2], label="right")
+        plt.plot(vel[:, 0], vel[:, 1], label="velocity")
+        plt.legend()
         plt.show()
         return motion_path
 
@@ -125,7 +145,7 @@ class RRT:
 
         return self._get_optimal_rrt_path(plot)
 
-    def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]):
+    def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]) -> List[SpacecraftTrajectory]:
         rrt_line = LineString([node.pos for node in rrt_path])
         # A*
         state = start
@@ -156,7 +176,8 @@ class RRT:
             projected_np = np.array([[point.x, point.y]
                                      for point in projected])
             norms = np.linalg.norm(projected_np - primitive_pos, axis=1)
-            return np.max(norms)**2
+            vel = np.array([np.abs([state.vx, state.vy]) for state in primitive.states])
+            return np.max(norms)**2 + np.max(vel)
 
         def heuristic(state: SpacecraftState) -> float:
             return np.linalg.norm(rrt_path[-1].pos -
@@ -171,6 +192,9 @@ class RRT:
                     f"{i}: priority: {prio:.2f}, cost: {costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
                 )
             if is_goal(state):
+                print(
+                    f"{i}: priority: {prio:.2f}, cost: {costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
+                )
                 path = []
                 p = state
                 while True:

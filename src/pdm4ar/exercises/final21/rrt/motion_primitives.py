@@ -107,7 +107,7 @@ class MotionPrimitives:
         return SpacecraftState(
             x=0,
             y=0,
-            psi=closest(state.psi, np.linspace(0, 2 * np.pi, 2*steps)[:-1]) ,
+            psi=closest(state.psi, np.linspace(0, 2 * np.pi, 5*steps)[:-1]) ,
             vx=closest(state.vx, np.linspace(limit_vel[0], limit_vel[1],
                                              steps)),
             vy=closest(state.vy, np.linspace(limit_vel[0], limit_vel[1],
