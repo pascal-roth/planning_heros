@@ -7,6 +7,8 @@ CONSTRAIN_VEL_ANG: float = 2 * np.pi  #2 * np.pi
 
 # Motion primitives
 DELTAT_LIMITS = (.5, 2.)
-MOTION_PRIMITIVE_INPUT_DIVISIONS: int = 10
+MOTION_PRIMITIVE_INPUT_DIVISIONS: int = 5
 STEERING_MAX_DIST: float = 10.
-MAX_ABS_ACC_DIFF: float = 1.
+MAX_ABS_ACC_DIFF: float = 2
+
+MAX_GOAL_VEL: float = 1

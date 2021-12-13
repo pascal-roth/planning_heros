@@ -42,6 +42,18 @@ class SpacecraftTrajectory:
                             state.vy, state.dpsi) for state in self.states
         ], self.t0, self.tf, self.dt)
 
+    def rotate(self, psi: float) -> 'SpacecraftTrajectory':
+        # TODO: untested DO NOT USE AS IS
+        pos = np.array([[s.x, s.y] for s in self.states])
+        pos_zero = pos - pos[0, :]
+        R = np.array([[np.cos(psi), -np.sin(psi)], [np.sin(psi), np.cos(psi)]])
+        rotated = (R @ pos_zero.T).T
+        return SpacecraftTrajectory(self.commands.copy(), [
+            SpacecraftState(s[0], s[1], self.states[i].psi - psi,
+                            self.states[i].vx, self.states[i].vy,
+                            self.states[i].dpsi) for i, s in enumerate(rotated)
+        ], self.t0, self.tf, self.dt)
+
 
 class TrajectoryGroup:
     def __init__(self, trajectories: List[SpacecraftTrajectory]):
@@ -60,12 +72,12 @@ class MotionPrimitives:
 
         self.motion_constrains: MotionConstrains = MotionConstrains()
         self.primitives: List[SpacecraftTrajectory] = []
-        self.max_distance_covered = 10 # self._max_distance_covered()
+        self.max_distance_covered = self._max_distance_covered()
 
         self.primitive_database: Dict[str, TrajectoryGroup] = dict()
 
-    def distance(self, start: SpacecraftState,
-                 end: SpacecraftState) -> Tuple[float, SpacecraftTrajectory]:
+    def get_primitives_from(
+            self, start: SpacecraftState) -> List[SpacecraftTrajectory]:
         discrete = self._discretize_state(start)
 
         # get trajectory group and create it if not present
@@ -76,22 +88,12 @@ class MotionPrimitives:
                 f"building new TrajectoryGroup of {len(group.trajectories)} primitives for {discrete}"
             )
             self.primitive_database[discrete_repr] = group
-        traj_group = self.primitive_database[discrete_repr]
 
-        # find closest end state, and associated control input
-        dist, closest_idx = traj_group.kdtree.query(
-            [end.x - start.x, end.y - start.y])
-        traj_discrete: SpacecraftTrajectory = traj_group.trajectories[
-            closest_idx]
-        t = traj_discrete.offset(start.x, start.y)
-
-        command_discrete = traj_discrete.commands[-1]
-        continuous = self._get_trajectory(start, command_discrete,
-                                          traj_discrete.tf, traj_discrete.dt)
-        t_final = np.array([t.states[-1].x, t.states[-1].y])
-        continuous_final = np.array(
-            [continuous.states[-1].x, continuous.states[-1].y])
-        return continuous.get_cost(), continuous #np.linalg.norm( t_final - continuous_final)
+        traj_group: TrajectoryGroup = self.primitive_database[discrete_repr]
+        return [
+            primitive.offset(start.x, start.y)
+            for primitive in traj_group.trajectories
+        ]
 
     def _discretize_state(self, state: SpacecraftState) -> SpacecraftState:
         def closest(value: float, steps: np.ndarray) -> float:
@@ -101,12 +103,11 @@ class MotionPrimitives:
 
         limit_vel = self.motion_constrains.limit_vel
         limit_dpsi = self.motion_constrains.limit_dpsi
-        steps = 10
+        steps = 5
         return SpacecraftState(
             x=0,
             y=0,
-            psi=closest(state.psi,
-                        np.linspace(0, 2 * np.pi, steps)[:-1]),
+            psi=closest(state.psi, np.linspace(0, 2 * np.pi, steps)),
             vx=closest(state.vx, np.linspace(limit_vel[0], limit_vel[1],
                                              steps)),
             vy=closest(state.vy, np.linspace(limit_vel[0], limit_vel[1],
@@ -142,8 +143,8 @@ class MotionPrimitives:
                         dt: float = 0.1) -> SpacecraftTrajectory:
         # express initial state
         y0 = np.array([
-            spacecraft_t0.x, spacecraft_t0.y, spacecraft_t0.psi, spacecraft_t0.vx,
-            spacecraft_t0.vy, spacecraft_t0.dpsi
+            spacecraft_t0.x, spacecraft_t0.y, spacecraft_t0.psi,
+            spacecraft_t0.vx, spacecraft_t0.vy, spacecraft_t0.dpsi
         ])
 
         def dynamics(t, y):
@@ -171,8 +172,6 @@ class MotionPrimitives:
             ret[3] = ax
             ret[4] = ay
             ret[5] = ddpsi
-            # assert acc_left == acc_right
-            # assert ret[5] == 0
             return ret
 
         sol = solve_ivp(fun=dynamics,
@@ -216,6 +215,7 @@ class MotionPrimitives:
 
 
 if __name__ == "__main__":
+    matplotlib.use("TkAgg")
     sg = SpacecraftGeometry.default()
     mp = MotionPrimitives(sg)
     spacecraft_t0 = SpacecraftState(x=0, y=0, psi=1, vx=.5, vy=0, dpsi=4)

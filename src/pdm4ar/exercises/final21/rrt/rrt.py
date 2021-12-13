@@ -3,8 +3,8 @@ from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from typing import Sequence, Optional, Callable, Dict
-from shapely.geometry import Point
+from typing import Sequence, Optional, Callable, Dict, List
+from shapely.geometry import Point, LineString
 
 from dg_commons.planning import PolygonGoal
 from dg_commons.sim.models.obstacles import StaticObstacle
@@ -13,12 +13,14 @@ from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
 
 from pdm4ar.exercises.final21.rrt.motion_primitives import MotionPrimitives, SpacecraftTrajectory
-from pdm4ar.exercises.final21.rrt.params import MOTION_PRIMITIVE_INPUT_DIVISIONS, STEERING_MAX_DIST
+from pdm4ar.exercises.final21.rrt.params import MAX_GOAL_VEL, MOTION_PRIMITIVE_INPUT_DIVISIONS, STEERING_MAX_DIST
 from pdm4ar.exercises.final21.rrt.sampler import Sampler
 from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
 
 import networkx as nx
+import heapq
+from collections import defaultdict
 
 
 class Node:
@@ -72,10 +74,18 @@ class RRT:
 
     def plan_path(self, spacecraft_state: SpacecraftState):
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
-        motion_path = self.plan_motion_path(rrt_path)
+        motion_path = self.plan_motion_path(spacecraft_state, rrt_path)
+        ax = self._draw_obstacles()
+        for trajectory in motion_path:
+            if trajectory is not None:
+                pos = np.array([[s.x, s.y] for s in trajectory.states])
+                plt.plot(pos[:, 0], pos[:, 1], color="orange", zorder=100)
+        plt.show()
         return motion_path
 
-    def plan_rrt_path(self, spacecraft_state: SpacecraftState, plot: bool = True):
+    def plan_rrt_path(self,
+                      spacecraft_state: SpacecraftState,
+                      plot: bool = True) -> List[Node]:
         t_start = time.time()
 
         # add start point to point-cloud (pc)
@@ -83,7 +93,8 @@ class RRT:
 
         # build kdtree and determine distance of each point from Spacecraft
         self.distance.init_tree(self.sampler.pc2array())
-        distance = self.distance.get_distance(root_idx, point_cloud=self.sampler.pc2array())
+        distance = self.distance.get_distance(
+            root_idx, point_cloud=self.sampler.pc2array())
         distance_idx_sorted = np.argsort(distance)
 
         for idx in distance_idx_sorted:
@@ -97,8 +108,66 @@ class RRT:
 
         return self._get_optimal_rrt_path(plot)
 
-    def plan_motion_path(self):
-        pass
+    def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]):
+        rrt_line = LineString([node.pos for node in rrt_path])
+        # uniform cost search aka. Dijkstra's algorithm
+        state = start
+        costs = defaultdict(lambda: np.inf)
+        costs[state] = 0
+        parents = dict()
+        frontier = []
+        primitives = dict()
+        primitives[state] = None
+        heapq.heappush(frontier, (costs[state], state))
+
+        def is_goal(state: SpacecraftState) -> bool:
+            in_goal = self.goal.goal.contains(Point([state.x, state.y]))
+            slow = np.linalg.norm([state.vx, state.vy]) < MAX_GOAL_VEL
+            return in_goal
+
+        def cost(primitive: SpacecraftTrajectory) -> float:
+            primitive_pos = np.array([[state.x, state.y]
+                                      for state in primitive.states])
+            projected = [
+                rrt_line.interpolate(
+                    rrt_line.project(Point([state.x, state.y])))
+                for state in primitive.states
+            ]
+            projected_np = np.array([[point.x, point.y]
+                                     for point in projected])
+            norms = np.linalg.norm(projected_np - primitive_pos, axis=1)
+            return np.max(norms)
+
+        def heuristic(state:SpacecraftState) -> float:
+            return np.linalg.norm(rrt_path[-1].pos - np.array([state.x, state.y]))
+
+        while len(frontier) > 0:
+            prio, state = heapq.heappop(frontier)
+            goal_dist = np.linalg.norm(rrt_path[-1].pos - np.array([state.x, state.y]))
+            print(prio, goal_dist)
+            if is_goal(state):
+                path = []
+                p = state
+                while True:
+                    try:
+                        path.append(p)
+                        p = parents[p]
+                    except KeyError:
+                        break
+                motion_path = []
+                for p in reversed(path):
+                    motion_path.append(primitives[p])
+                return motion_path
+            for primitive in self.motion_primitives.get_primitives_from(state):
+                # new_cost = costs[state] + cost(primitive)
+                end_state = primitive.states[-1]
+                new_cost = heuristic(end_state)
+                primitives[end_state] = primitive
+                if new_cost < costs[end_state]:
+                    costs[end_state] = new_cost
+                    parents[end_state] = state
+                    heapq.heappush(frontier, (new_cost, end_state))
+        return []
 
     def refine_path(self, n_samples: int) -> None:
         # function not tested
@@ -109,7 +178,9 @@ class RRT:
             self._update_graph(x_rand_idx)
 
     def _add_root(self, spacecraft_state: SpacecraftState) -> int:
-        x_start = np.expand_dims(np.array([spacecraft_state.x, spacecraft_state.y]), axis=0)
+        x_start = np.expand_dims(np.array(
+            [spacecraft_state.x, spacecraft_state.y]),
+                                 axis=0)
         root_idx = self.sampler.point_cloud_idx_latest
         node = Node(cost=0., state=spacecraft_state)
         self.tree.add_node(node)
@@ -119,9 +190,15 @@ class RRT:
 
     def _update_graph(self, x_idx):
         x_rand = self.sampler.point_cloud[x_idx]
-        X_near_idx = self.distance.tree.query_ball_point(x_rand, r=self.radius, workers=-1)
-        X_near_mask = [x_near_idx in self.tree_idx.keys() for x_near_idx in X_near_idx]
-        X_near_idx_prune = [X_near_idx[idx] for idx, x_mask in enumerate(X_near_mask) if x_mask]
+        X_near_idx = self.distance.tree.query_ball_point(x_rand,
+                                                         r=self.radius,
+                                                         workers=-1)
+        X_near_mask = [
+            x_near_idx in self.tree_idx.keys() for x_near_idx in X_near_idx
+        ]
+        X_near_idx_prune = [
+            X_near_idx[idx] for idx, x_mask in enumerate(X_near_mask) if x_mask
+        ]
 
         # if not sample close to x_rand in the tree, terminate update
         if not X_near_idx_prune:
@@ -137,7 +214,8 @@ class RRT:
 
         # add new node to tree
         x_new = Node(state=goal_state,
-                     cost=x_nearest.cost + self.cost_fct(x_nearest.pos, x_rand))
+                     cost=x_nearest.cost +
+                     self.cost_fct(x_nearest.pos, x_rand))
         self.tree.add_node(x_new)
         self.tree_idx[x_idx] = x_new
 
@@ -158,30 +236,49 @@ class RRT:
             if collision_free and x_near.cost + line_cost < c_min:
                 x_min = x_near
                 c_min = x_near.cost + line_cost
-        self.tree.add_edge(x_min, x_new, trajectory=SpacecraftTrajectory([], [x_min.state, x_new.state], 0, 0, 0))
+        self.tree.add_edge(x_min,
+                           x_new,
+                           trajectory=SpacecraftTrajectory(
+                               [], [x_min.state, x_new.state], 0, 0, 0))
 
         # rebuild tree s.t. samples that can be reached with a smaller cost from the x_new are updated
         for x_near in near_nodes:
             # TODO: also add collision check
             collision_free = True
-            motion_cost = c_min + self.cost_fct(x_rand, x_near.pos)  # motion_cost
+            motion_cost = c_min + self.cost_fct(x_rand,
+                                                x_near.pos)  # motion_cost
             if c_min + motion_cost < x_near.cost:
                 x_parent = self.tree.predecessors(x_near)
                 self.tree.remove_edge(next(x_parent), x_near)
-                self.tree.add_edge(x_new, x_near, trajectory=SpacecraftTrajectory([], [x_new.state, x_near.state], 0, 0, 0))
+                self.tree.add_edge(x_new,
+                                   x_near,
+                                   trajectory=SpacecraftTrajectory(
+                                       [], [x_new.state, x_near.state], 0, 0,
+                                       0))
 
-    def _get_optimal_rrt_path(self, plot: bool = True):
+    def _get_optimal_rrt_path(self, plot: bool = True) -> List[Node]:
         # get all points in the goal region
-        sample_mask = [self.goal.goal.contains(Point(pc_point)) for pc_point in self.sampler.point_cloud.values()]
-        goal_nodes = [self.tree_idx[idx] for idx in self.tree_idx.keys() if sample_mask[idx]]
+        sample_mask = [
+            self.goal.goal.contains(Point(pc_point))
+            for pc_point in self.sampler.point_cloud.values()
+        ]
+        goal_nodes = [
+            self.tree_idx[idx] for idx in self.tree_idx.keys()
+            if sample_mask[idx]
+        ]
         goal_costs = [node.cost for node in goal_nodes]
         goal_node = goal_nodes[np.argmin(goal_costs)]
 
-        rrt_path = [goal_node]
-        current_node = goal_node
-        while 0:
-            rrt_path.append()
-
+        rrt_path = []
+        parent = goal_node
+        while True:
+            try:
+                current_node = parent
+                rrt_path.append(current_node)
+                parent = next(self.tree.predecessors(current_node))
+            except StopIteration:
+                break
+        rrt_path.reverse()
         return rrt_path
 
     def _draw_obstacles(self):
