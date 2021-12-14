@@ -1,6 +1,7 @@
 from typing import Sequence
 
 from dg_commons import PlayerName
+from dg_commons import sim
 from dg_commons.planning import PolygonGoal
 from dg_commons.sim import SimObservations
 from dg_commons.sim.agents import Agent
@@ -42,6 +43,9 @@ class Pdm4arAgent(Agent):
         :param sim_obs:
         :return:
         """
-        self.rrt.plan_path(sim_obs.players['PDM4AR'].state)
+        policy = self.rrt.plan_path(sim_obs.players['PDM4AR'].state)
 
-        return SpacecraftCommands(acc_left=1, acc_right=1)
+        acc_left, acc_right = policy(sim_obs.time)        
+        command = SpacecraftCommands(acc_left, acc_right)
+        print(f"policy at time {sim_obs.time} -> {command}")
+        return command

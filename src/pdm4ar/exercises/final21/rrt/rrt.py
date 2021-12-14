@@ -3,7 +3,7 @@ from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from typing import Sequence, Optional, Callable, Dict, List
+from typing import Sequence, Optional, Callable, Dict, List, Tuple
 from shapely.geometry import Point, LineString
 
 from dg_commons.planning import PolygonGoal
@@ -76,10 +76,13 @@ class RRT:
         # self.radius = self.motion_primitives.max_distance_covered
         self.radius = radius
 
-    def plan_path(self, spacecraft_state: SpacecraftState):
+    def plan_path(
+        self, spacecraft_state: SpacecraftState
+    ) -> Callable[[float], Tuple[float, float]]:
         t_start = time.time()
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
         motion_path = self.plan_motion_path(spacecraft_state, rrt_path)
+        # motion_path = [t for t in motion_path if t is not None]
         print(f'Motion Path Constructed in {time.time() - t_start:.2f}s')
         # clear tree_idx and tree
         self.tree_idx = {}
@@ -92,31 +95,30 @@ class RRT:
 
         # plot motion path
         for trajectory in motion_path:
-            if trajectory is not None:
-                pos = np.array([[s.x, s.y] for s in trajectory.states])
-                # vel = np.array(
-                #     [np.linalg.norm([s.vx, s.vy]) for s in trajectory.states])
-                # vel /= np.max(vel)
-                # plt.scatter(pos[:, 0],
-                #             pos[:, 1],
-                #             c=cm.viridis(vel),
-                #             zorder=100,
-                #             edgecolor="none")
-                plt.plot(pos[:, 0], pos[:, 1], zorder=90)
-        plt.show()    
+            pos = np.array([[s.x, s.y] for s in trajectory.states])
+            # vel = np.array(
+            #     [np.linalg.norm([s.vx, s.vy]) for s in trajectory.states])
+            # vel /= np.max(vel)
+            # plt.scatter(pos[:, 0],
+            #             pos[:, 1],
+            #             c=cm.viridis(vel),
+            #             zorder=100,
+            #             edgecolor="none")
+            plt.plot(pos[:, 0], pos[:, 1], zorder=90)
+        plt.show()
         plt.figure()
         t = 0
         inputs = []
         vel = []
         for trajectory in motion_path:
-            if trajectory is not None:
-                l = trajectory.commands[0].acc_left
-                r = trajectory.commands[0].acc_right
-                inputs.append([t, l, r])
-                for i, state in enumerate(trajectory.states):
-                    v = np.linalg.norm([state.vx, state.vy])
-                    vel.append([t + (i / len(trajectory.states))* trajectory.tf, v])
-                t += trajectory.tf
+            l = trajectory.commands[0].acc_left
+            r = trajectory.commands[0].acc_right
+            inputs.append([t, l, r])
+            for i, state in enumerate(trajectory.states):
+                v = np.linalg.norm([state.vx, state.vy])
+                vel.append(
+                    [t + (i / len(trajectory.states)) * trajectory.tf, v])
+            t += trajectory.tf
         inputs = np.array(inputs)
         vel = np.array(vel)
         plt.plot(inputs[:, 0], inputs[:, 1], label="left")
@@ -124,7 +126,18 @@ class RRT:
         plt.plot(vel[:, 0], vel[:, 1], label="velocity")
         plt.legend()
         plt.show()
-        return motion_path
+
+        def policy(time: float) -> Tuple[float, float]:
+            assert time >= 0
+            t = 0
+            for trajectory in motion_path:
+                t += trajectory.tf
+                if t > time:
+                    break
+            return trajectory.commands[0].acc_left, trajectory.commands[
+                0].acc_right
+
+        return policy
 
     def plan_rrt_path(self,
                       spacecraft_state: SpacecraftState,
@@ -149,7 +162,8 @@ class RRT:
         rrt_path = self._get_optimal_rrt_path()
         return self._rrt_path_improvement(rrt_path)
 
-    def plan_motion_path(self, start: SpacecraftState, rrt_path: List[Node]) -> List[SpacecraftTrajectory]:
+    def plan_motion_path(self, start: SpacecraftState,
+                         rrt_path: List[Node]) -> List[SpacecraftTrajectory]:
         rrt_line = LineString([node.pos for node in rrt_path])
         # A*
         state = start
@@ -181,7 +195,8 @@ class RRT:
             projected_np = np.array([[point.x, point.y]
                                      for point in projected])
             norms = np.linalg.norm(projected_np - primitive_pos, axis=1)
-            vel = np.array([np.abs([state.vx, state.vy]) for state in primitive.states])
+            vel = np.array(
+                [np.abs([state.vx, state.vy]) for state in primitive.states])
             return np.max(norms)**2 + np.max(vel)
 
         def heuristic(state: SpacecraftState) -> float:
@@ -211,7 +226,7 @@ class RRT:
                 motion_path = []
                 for p in reversed(path):
                     motion_path.append(primitives[p])
-                return motion_path
+                return motion_path[1:]
             for primitive in self.motion_primitives.get_primitives_from(state):
                 end_state = primitive.states[-1]
                 new_cost = np.max([costs[state], cost(primitive)])
@@ -226,7 +241,7 @@ class RRT:
     def _add_root(self, spacecraft_state: SpacecraftState) -> int:
         x_start = np.expand_dims(np.array(
             [spacecraft_state.x, spacecraft_state.y]),
-            axis=0)
+                                 axis=0)
         root_idx = self.sampler.point_cloud_idx_latest
         node = Node(cost=0., state=spacecraft_state)
         self.tree.add_node(node)
@@ -259,7 +274,8 @@ class RRT:
 
         # check for all samples within radius which results in the smallest cost to reach the new sample
         for x_near in near_nodes:
-            collision_free = self.sampler.collision_checker.path_collision_free(x_near.pos, x_rand)
+            collision_free = self.sampler.collision_checker.path_collision_free(
+                x_near.pos, x_rand)
             line_cost = self.cost_fct(x_near.pos, x_rand)
             if collision_free and x_near.cost + line_cost < c_min:
                 x_min = x_near
@@ -277,8 +293,7 @@ class RRT:
                                      dpsi=0)
 
         # add new node to tree
-        x_new = Node(state=goal_state,
-                     cost=c_min)
+        x_new = Node(state=goal_state, cost=c_min)
         self.tree.add_node(x_new)
         self.tree_idx[x_idx] = x_new
         self.tree.add_edge(x_min,
@@ -288,7 +303,8 @@ class RRT:
 
         # rebuild tree s.t. samples that can be reached with a smaller cost from the x_new are updated
         for x_near in near_nodes:
-            collision_free = self.sampler.collision_checker.path_collision_free(x_rand, x_near.pos)
+            collision_free = self.sampler.collision_checker.path_collision_free(
+                x_rand, x_near.pos)
             motion_cost = c_min + self.cost_fct(x_rand,
                                                 x_near.pos)  # motion_cost
             if c_min + motion_cost < x_near.cost and collision_free:
@@ -330,12 +346,23 @@ class RRT:
         for i in range(PRUNE_ITERATIONS):
             path_mask = [True]
             for idx in range(1, len(rrt_path) - 1, 1):
-                coeff = np.polyfit(x=[rrt_path[idx - 1].state.x, rrt_path[idx].state.x, rrt_path[idx + 1].state.x],
-                                   y=[rrt_path[idx - 1].state.y, rrt_path[idx].state.y, rrt_path[idx + 1].state.y],
+                coeff = np.polyfit(x=[
+                    rrt_path[idx - 1].state.x, rrt_path[idx].state.x,
+                    rrt_path[idx + 1].state.x
+                ],
+                                   y=[
+                                       rrt_path[idx - 1].state.y,
+                                       rrt_path[idx].state.y,
+                                       rrt_path[idx + 1].state.y
+                                   ],
                                    deg=2)
-                path_mask.append(True) if coeff[0] > MIN_CURVATURE/2 else path_mask.append(False)
+                path_mask.append(
+                    True
+                ) if coeff[0] > MIN_CURVATURE / 2 else path_mask.append(False)
             path_mask.append(True)
-            rrt_path = [node for idx, node in enumerate(rrt_path) if path_mask[idx]]
+            rrt_path = [
+                node for idx, node in enumerate(rrt_path) if path_mask[idx]
+            ]
 
         return rrt_path
 
