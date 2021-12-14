@@ -19,4 +19,4 @@ MIN_CURVATURE = 1e-3
 PRUNE_ITERATIONS = 1
 
 # Buffer (Inflate) Obstacles by Distance
-BUFFER_DISTANCE = 1
+BUFFER_DISTANCE = 4

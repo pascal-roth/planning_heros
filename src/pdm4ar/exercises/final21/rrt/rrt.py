@@ -152,6 +152,9 @@ class RRT:
             root_idx, point_cloud=self.sampler.pc2array())
         distance_idx_sorted = np.argsort(distance)
 
+        # initialize distances between samples in the pc and the obstacles in the collision class
+        self.sampler.collision_checker.obstacle_distance(self.sampler.pc2array())
+
         for idx in distance_idx_sorted:
             self._update_graph(idx)
 
@@ -265,21 +268,19 @@ class RRT:
         if not X_near_idx_prune:
             return
 
-        # collect the samples within range, if no tree points in the radius, terminate update
-        near_nodes = [self.tree_idx[idx] for idx in X_near_idx_prune]
-
         # init x_min and its cost
         x_min = None
         c_min = np.inf  # x_new.cost
 
         # check for all samples within radius which results in the smallest cost to reach the new sample
-        for x_near in near_nodes:
-            collision_free = self.sampler.collision_checker.path_collision_free(
-                x_near.pos, x_rand)
-            line_cost = self.cost_fct(x_near.pos, x_rand)
-            if collision_free and x_near.cost + line_cost < c_min:
+        near_nodes = [self.tree_idx[idx] for idx in X_near_idx_prune]
+        for idx, x_near in enumerate(near_nodes):
+            pt_distance = self.cost_fct(x_near.pos, x_rand)
+            # currently euclidean distance, if changed, cannot be passed anymore to collision check
+            collision_free = self.sampler.collision_checker.path_collision_free(x_near.pos, x_rand, pt_distance, idx)
+            if collision_free and x_near.cost + pt_distance < c_min:
                 x_min = x_near
-                c_min = x_near.cost + line_cost
+                c_min = x_near.cost + pt_distance
 
         # if no feasible path could be found, terminate update
         if not x_min:
@@ -303,10 +304,10 @@ class RRT:
 
         # rebuild tree s.t. samples that can be reached with a smaller cost from the x_new are updated
         for x_near in near_nodes:
-            collision_free = self.sampler.collision_checker.path_collision_free(
-                x_rand, x_near.pos)
-            motion_cost = c_min + self.cost_fct(x_rand,
-                                                x_near.pos)  # motion_cost
+            pt_distance = self.cost_fct(x_rand, x_near.pos)
+            # currently euclidean distance, if changed, cannot be passed anymore to collision check
+            collision_free = self.sampler.collision_checker.path_collision_free(x_rand, x_near.pos, pt_distance, x_idx)
+            motion_cost = c_min + pt_distance  # motion_cost
             if c_min + motion_cost < x_near.cost and collision_free:
                 x_parent = self.tree.predecessors(x_near)
                 self.tree.remove_edge(next(x_parent), x_near)
