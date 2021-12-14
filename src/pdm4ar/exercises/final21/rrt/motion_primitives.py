@@ -1,6 +1,7 @@
 from typing import List, Tuple, Dict
 import numpy as np
 import math
+from numpy.matrixlib import defmatrix
 from scipy.integrate import solve_ivp
 from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftState, SpacecraftGeometry
 
@@ -77,23 +78,45 @@ class MotionPrimitives:
         self.primitive_database: Dict[str, TrajectoryGroup] = dict()
 
     def get_primitives_from(
-            self, start: SpacecraftState) -> List[SpacecraftTrajectory]:
+            self, start: SpacecraftState, plot=False) -> List[SpacecraftTrajectory]:
         discrete = self._discretize_state(start)
-
+        
         # get trajectory group and create it if not present
-        discrete_repr = repr(discrete)
-        if discrete_repr not in self.primitive_database:
-            group = TrajectoryGroup(self._generate_trajectories(discrete))
-            print(
-                f"building new TrajectoryGroup of {len(group.trajectories)} primitives for {discrete}"
-            )
-            self.primitive_database[discrete_repr] = group
+        # discrete_repr = repr(discrete)
+        # if discrete_repr not in self.primitive_database:
+        #     start_vel = np.array([start.vx, start.vy])
+        #     end_vel = np.array([discrete.vx, discrete.vy])
+        #     print(f"discretization velocity error: {np.linalg.norm(start_vel - end_vel)}")
+        #     group = TrajectoryGroup(self._generate_trajectories(discrete))
+        #     print(
+        #         f"building new TrajectoryGroup of {len(group.trajectories)} primitives for {discrete}"
+        #     )
+        #     self.primitive_database[discrete_repr] = group
+        #     if plot:
+        #         # plot primitives
+        #         plt.figure()
+        #         matplotlib.use("TkAgg")
+        #         plt.scatter(discrete.x,discrete.y, label="discrete start pos")
+        #         plt.scatter(0, np.linalg.norm([start.vx, start.vy]), label="start vel")
+        #         plt.scatter(0, np.linalg.norm([discrete.vx,discrete.vy]), label="discrete start vel")
+        #         for trajectory in group.trajectories:
+        #             pos = np.array([[s.x, s.y]
+        #                             for s in trajectory.states])
+        #             vel = np.array([np.linalg.norm([s.vx, s.vy]) for s in trajectory.states])
+        #             vel_x = np.linspace(0, 1, vel.shape[0])
+        #             plt.plot(pos[:, 0], pos[:, 1], color="orange")
+        #             plt.plot(vel_x, vel, color="green")
 
-        traj_group: TrajectoryGroup = self.primitive_database[discrete_repr]
-        return [
-            primitive.offset(start.x, start.y)
-            for primitive in traj_group.trajectories
-        ]
+        #         plt.legend()
+        #         plt.show()
+
+        traj_group= TrajectoryGroup(self._generate_trajectories(start))
+        # traj_group: TrajectoryGroup = self.primitive_database[discrete_repr]
+        return traj_group.trajectories
+        # return [
+        #     primitive.offset(start.x, start.y)
+        #     for primitive in traj_group.trajectories
+        # ]
 
     def _discretize_state(self, state: SpacecraftState) -> SpacecraftState:
         def closest(value: float, steps: np.ndarray) -> float:
@@ -107,11 +130,12 @@ class MotionPrimitives:
         return SpacecraftState(
             x=0,
             y=0,
-            psi=closest(state.psi, np.linspace(0, 2 * np.pi, 5*steps)[:-1]) ,
+            psi=closest(state.psi,
+                        np.linspace(0, 2 * np.pi, 5 * steps)[:-1]),
             vx=closest(state.vx, np.linspace(limit_vel[0], limit_vel[1],
-                                             steps)),
+                                             2*steps)),
             vy=closest(state.vy, np.linspace(limit_vel[0], limit_vel[1],
-                                             steps)),
+                                             2*steps)),
             dpsi=closest(state.dpsi,
                          np.linspace(limit_dpsi[0], limit_dpsi[1], steps)))
 
@@ -119,19 +143,15 @@ class MotionPrimitives:
             self, state: SpacecraftState) -> List[SpacecraftTrajectory]:
         input_limits = self.motion_constrains.limit_acc
         acc = np.linspace(input_limits[0], input_limits[1], self.steps)
-        # dts = np.linspace(DELTAT_LIMITS[0], DELTAT_LIMITS[1], self.steps)
         acc_left, acc_right = np.meshgrid(acc, acc)
         primitives = []
 
-        # for k in range(dts.shape[0]):
-        #     dt = dts[k]
         for i in range(acc_left.shape[0]):
             for j in range(acc_left.shape[1]):
                 acc_diff = np.abs(acc_left[i, j] - acc_right[i, j])
                 if acc_diff > MAX_ABS_ACC_DIFF:
                     continue
-                command = SpacecraftCommands(acc_left[i, j], acc_right[i,
-                                                                        j])
+                command = SpacecraftCommands(acc_left[i, j], acc_right[i, j])
                 trajectory = self._get_trajectory(state, command, DELTAT_LIMIT)
                 primitives.append(trajectory)
         return primitives
@@ -174,12 +194,7 @@ class MotionPrimitives:
             ret[5] = ddpsi
             return ret
 
-        sol = solve_ivp(fun=dynamics,
-                        t_span=(0.0, tf),
-                        y0=y0,
-                        vectorized=True)
-                        # method="LSODA",
-                        # rtol=1e-5)
+        sol = solve_ivp(fun=dynamics, t_span=(0.0, tf), y0=y0, vectorized=True,method="RK23", rtol=1e-4)
 
         assert sol.success, f"Solving the IVP for ({u.acc_left}, {u.acc_right}) failed"
         states: List[SpacecraftState] = []

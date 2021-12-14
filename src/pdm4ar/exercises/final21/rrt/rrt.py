@@ -1,3 +1,4 @@
+from os import device_encoding
 import time
 from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 import numpy as np
@@ -81,9 +82,11 @@ class RRT:
     ) -> Callable[[float], Tuple[float, float]]:
         t_start = time.time()
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
+        t_rrt = time.time() - t_start
+        t_start = time.time()
         motion_path = self.plan_motion_path(spacecraft_state, rrt_path)
-        # motion_path = [t for t in motion_path if t is not None]
-        print(f'Motion Path Constructed in {time.time() - t_start:.2f}s')
+        t_motion = time.time() - t_start
+        print(f'Planned motion path, total: {t_rrt + t_motion:.2f}s, rrt: {t_rrt:.2f}s, motion: {t_motion:.2f}s')
         # clear tree_idx and tree
         self.tree_idx = {}
         self.tree = nx.DiGraph
@@ -109,21 +112,24 @@ class RRT:
         plt.figure()
         t = 0
         inputs = []
-        vel = []
+        # vel = []
         for trajectory in motion_path:
             l = trajectory.commands[0].acc_left
             r = trajectory.commands[0].acc_right
             inputs.append([t, l, r])
+            vel = []
             for i, state in enumerate(trajectory.states):
                 v = np.linalg.norm([state.vx, state.vy])
                 vel.append(
                     [t + (i / len(trajectory.states)) * trajectory.tf, v])
+            vel = np.array(vel)
+            plt.plot(vel[:, 0], vel[:, 1])
             t += trajectory.tf
+
         inputs = np.array(inputs)
-        vel = np.array(vel)
-        plt.plot(inputs[:, 0], inputs[:, 1], label="left")
-        plt.plot(inputs[:, 0], inputs[:, 2], label="right")
-        plt.plot(vel[:, 0], vel[:, 1], label="velocity")
+        # vel = np.array(vel)
+        plt.plot(inputs[:, 0], inputs[:, 1], label="$l$")
+        plt.plot(inputs[:, 0], inputs[:, 2], label="$r$")
         plt.legend()
         plt.show()
 
@@ -200,7 +206,10 @@ class RRT:
             norms = np.linalg.norm(projected_np - primitive_pos, axis=1)
             vel = np.array(
                 [np.abs([state.vx, state.vy]) for state in primitive.states])
-            return np.max(norms)**2 + np.max(vel)
+            deviation_err = np.max(norms) ** 2
+            # cost_err = primitive.get_cost()
+            # print(deviation_err, cost_err)
+            return deviation_err
 
         def heuristic(state: SpacecraftState) -> float:
             return np.linalg.norm(rrt_path[-1].pos -
@@ -234,7 +243,7 @@ class RRT:
                 end_state = primitive.states[-1]
                 new_cost = np.max([costs[state], cost(primitive)])
                 primitives[end_state] = primitive
-                f = new_cost + heuristic(end_state)
+                f =new_cost +  heuristic(end_state)
                 if new_cost < costs[end_state]:
                     costs[end_state] = new_cost
                     parents[end_state] = state
