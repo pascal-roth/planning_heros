@@ -17,27 +17,24 @@ class CollisionChecker:
                  dynamic_obstacles=None):
         self.static_obstacles: List[StaticObstacle] = list(static_obstacles)
         self.dynamic_obstacles = dynamic_obstacles
-        # self.bounding_boxes = [for obstacle in sta]
-
-    def _check(self, point: Point) -> bool:
-        for obstacle in self.static_obstacles:
-            # check bounding box
-            obstacle_buffered = obstacle.shape.buffer(BUFFER_DISTANCE)
-            if obstacle_buffered.contains(point):
-                return True
-        return False
+        self.dist2obstacle: List[float] = []
 
     def is_collision_free(self, pts: np.ndarray) -> np.ndarray:
-        n_pts = pts.shape[0]
-        mask = np.zeros((n_pts, ), dtype=bool)
-        for i in range(n_pts):
-            mask[i] = self._check(Point(pts[i, :]))
+        obstacles_buffered = [obstacle.shape.buffer(BUFFER_DISTANCE) for obstacle in self.static_obstacles]
+        mask = [any([obstacle.contains(Point(pt)) for obstacle in obstacles_buffered]) for pt in pts]
+        mask = np.array(mask)
         return ~mask
 
-    def path_collision_free(self, pt_start: np.ndarray, pt_end: np.ndarray):
+    def path_collision_free(self, pt_start: np.ndarray, pt_end: np.ndarray, pt_distance: float, idx: int):
+        if pt_distance < self.dist2obstacle[idx]:
+            return True
+
         delta_x = pt_end[0] - pt_start[0]
         delta_y = pt_end[1] - pt_start[1]
         pts_on_line = [np.array([pt_start[0] + step * delta_x, pt_start[1] + delta_y * step]) for step in
-                       np.arange(0.25, 1, 0.25)]
+                       np.arange(0.25, 0.1, 0.25)]
         return all(self.is_collision_free(np.array(pts_on_line)))
 
+    def obstacle_distance(self, point_cloud: np.ndarray) -> None:
+        self.dist2obstacle = [np.min([obstacle.shape.distance(Point(pc_point)) for obstacle in self.static_obstacles])
+                              for pc_point in point_cloud]
