@@ -86,51 +86,64 @@ class RRT:
         t_start = time.time()
         motion_path = self.plan_motion_path(spacecraft_state, rrt_path)
         t_motion = time.time() - t_start
-        print(f'Planned motion path, total: {t_rrt + t_motion:.2f}s, rrt: {t_rrt:.2f}s, motion: {t_motion:.2f}s')
+        print(
+            f'Planned motion path, total: {t_rrt + t_motion:.2f}s, rrt: {t_rrt:.2f}s, motion: {t_motion:.2f}s'
+        )
         # clear tree_idx and tree
         self.tree_idx = {}
         self.tree = nx.DiGraph
+
         # plot
-        ax = self._draw_obstacles()
+        matplotlib.use('TkAgg')
+        f, (ax1, ax2) = plt.subplots(1, 2)
+        self._draw_obstacles(ax1)
         # plot rrt_path
         pos = np.array([node.pos for node in rrt_path])
-        plt.plot(pos[:, 0], pos[:, 1], color="red", zorder=100, marker='*')
+        ax1.plot(pos[:, 0],
+                 pos[:, 1],
+                 color="red",
+                 zorder=100,
+                 marker='*',
+                 label="RRT path")
 
         # plot motion path
+        pos = []
         for trajectory in motion_path:
-            pos = np.array([[s.x, s.y] for s in trajectory.states])
-            # vel = np.array(
-            #     [np.linalg.norm([s.vx, s.vy]) for s in trajectory.states])
-            # vel /= np.max(vel)
-            # plt.scatter(pos[:, 0],
-            #             pos[:, 1],
-            #             c=cm.viridis(vel),
-            #             zorder=100,
-            #             edgecolor="none")
-            plt.plot(pos[:, 0], pos[:, 1], zorder=90)
-        plt.show()
-        plt.figure()
+            for state in trajectory.states:
+                pos.append([state.x, state.y])
+        pos = np.array(pos)
+        ax1.plot(pos[:, 0], pos[:, 1], zorder=90, label="motion path")
+        ax1.legend()
+
         t = 0
-        inputs = []
-        # vel = []
+        acc = []
+        states = []
         for trajectory in motion_path:
             l = trajectory.commands[0].acc_left
             r = trajectory.commands[0].acc_right
-            inputs.append([t, l, r])
-            vel = []
+            acc.append([t, l, r])
             for i, state in enumerate(trajectory.states):
-                v = np.linalg.norm([state.vx, state.vy])
-                vel.append(
-                    [t + (i / len(trajectory.states)) * trajectory.tf, v])
-            vel = np.array(vel)
-            plt.plot(vel[:, 0], vel[:, 1])
+                v = list(state.as_ndarray())
+                states.append(
+                    [t + (i / len(trajectory.states)) * trajectory.tf] + v)
             t += trajectory.tf
 
-        inputs = np.array(inputs)
-        # vel = np.array(vel)
-        plt.plot(inputs[:, 0], inputs[:, 1], label="$l$")
-        plt.plot(inputs[:, 0], inputs[:, 2], label="$r$")
-        plt.legend()
+        # append last state for proper step plotting
+        acc.append([t, *acc[-1][1:]])
+
+        acc = np.array(acc)
+        states = np.array(states)
+        ax2.step(acc[:, 0], acc[:, 1], label="$a_l$")
+        ax2.step(acc[:, 0], acc[:, 2], label="$a_r$")
+        # ax2.plot(states[:, 0], states[:, 1], label="$p_x$")
+        # ax2.plot(states[:, 0], states[:, 2], label="$p_y$")
+        ax2.plot(states[:, 0], states[:, 3], label="$\psi$")
+        ax2.plot(states[:, 0], states[:, 4], label="$v_x$")
+        ax2.plot(states[:, 0], states[:, 5], label="$v_y$")
+        ax2.plot(states[:, 0], states[:, 6], label="$d\psi$")
+        ax2.legend()
+
+        f.show()
         plt.show()
 
         def policy(time: float) -> Tuple[float, float]:
@@ -159,7 +172,8 @@ class RRT:
         distance_idx_sorted = np.argsort(distance)
 
         # initialize distances between samples in the pc and the obstacles in the collision class
-        self.sampler.collision_checker.obstacle_distance(self.sampler.pc2array())
+        self.sampler.collision_checker.obstacle_distance(
+            self.sampler.pc2array())
 
         for idx in distance_idx_sorted:
             self._update_graph(idx)
@@ -206,9 +220,13 @@ class RRT:
             norms = np.linalg.norm(projected_np - primitive_pos, axis=1)
             vel = np.array(
                 [np.abs([state.vx, state.vy]) for state in primitive.states])
-            deviation_err = np.max(norms) ** 2
+            deviation_err = np.max(norms)**2
+            control_input = np.array([
+                primitive.commands[0].acc_left, primitive.commands[0].acc_right
+            ])
+            control_err = np.linalg.norm(control_input)**2
             # cost_err = primitive.get_cost()
-            # print(deviation_err, cost_err)
+            # print(deviation_err, control_err)
             return deviation_err
 
         def heuristic(state: SpacecraftState) -> float:
@@ -219,7 +237,7 @@ class RRT:
         while len(frontier) > 0:
             prio, state = heapq.heappop(frontier)
             i += 1
-            if i % 100 == 0:
+            if i % 10 == 0:
                 print(
                     f"{i}: priority: {prio:.2f}, cost: {costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
                 )
@@ -243,7 +261,7 @@ class RRT:
                 end_state = primitive.states[-1]
                 new_cost = np.max([costs[state], cost(primitive)])
                 primitives[end_state] = primitive
-                f =new_cost +  heuristic(end_state)
+                f = new_cost + heuristic(end_state)
                 if new_cost < costs[end_state]:
                     costs[end_state] = new_cost
                     parents[end_state] = state
@@ -286,7 +304,8 @@ class RRT:
         for idx, x_near in enumerate(near_nodes):
             pt_distance = self.cost_fct(x_near.pos, x_rand)
             # currently euclidean distance, if changed, cannot be passed anymore to collision check
-            collision_free = self.sampler.collision_checker.path_collision_free(x_near.pos, x_rand, pt_distance, idx)
+            collision_free = self.sampler.collision_checker.path_collision_free(
+                x_near.pos, x_rand, pt_distance, idx)
             if collision_free and x_near.cost + pt_distance < c_min:
                 x_min = x_near
                 c_min = x_near.cost + pt_distance
@@ -315,7 +334,8 @@ class RRT:
         for x_near in near_nodes:
             pt_distance = self.cost_fct(x_rand, x_near.pos)
             # currently euclidean distance, if changed, cannot be passed anymore to collision check
-            collision_free = self.sampler.collision_checker.path_collision_free(x_rand, x_near.pos, pt_distance, x_idx)
+            collision_free = self.sampler.collision_checker.path_collision_free(
+                x_rand, x_near.pos, pt_distance, x_idx)
             motion_cost = c_min + pt_distance  # motion_cost
             if c_min + motion_cost < x_near.cost and collision_free:
                 x_parent = self.tree.predecessors(x_near)
@@ -376,9 +396,7 @@ class RRT:
 
         return rrt_path
 
-    def _draw_obstacles(self):
-        matplotlib.use('TkAgg')
-        ax = plt.gca()
+    def _draw_obstacles(self, ax):
         shapely_viz = ShapelyViz(ax)
 
         for s_obstacle in self.static_obstacles:

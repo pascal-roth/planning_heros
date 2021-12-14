@@ -79,7 +79,7 @@ class MotionPrimitives:
 
     def get_primitives_from(
             self, start: SpacecraftState, plot=False) -> List[SpacecraftTrajectory]:
-        discrete = self._discretize_state(start)
+        # discrete = self._discretize_state(start)
         
         # get trajectory group and create it if not present
         # discrete_repr = repr(discrete)
@@ -110,13 +110,7 @@ class MotionPrimitives:
         #         plt.legend()
         #         plt.show()
 
-        traj_group= TrajectoryGroup(self._generate_trajectories(start))
-        # traj_group: TrajectoryGroup = self.primitive_database[discrete_repr]
-        return traj_group.trajectories
-        # return [
-        #     primitive.offset(start.x, start.y)
-        #     for primitive in traj_group.trajectories
-        # ]
+        return self._generate_trajectories(start)
 
     def _discretize_state(self, state: SpacecraftState) -> SpacecraftState:
         def closest(value: float, steps: np.ndarray) -> float:
