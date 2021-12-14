@@ -8,7 +8,7 @@ __pycache__/
 # project specific 
 *.idea
 out-docker/
-
+out/
 # C extensions
 *.so
 
