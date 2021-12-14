@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from dg_commons.planning import PolygonGoal
 from dg_commons.sim.models.obstacles import StaticObstacle
-from dg_commons.sim.models.spacecraft import SpacecraftState
+from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftState
 from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
 
@@ -24,7 +24,7 @@ from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
 
 # use plots in developmend, turn off for simulation
-plot = False
+plot = True
 
 
 class Node:
@@ -77,14 +77,16 @@ class RRT:
             self.sg, MOTION_PRIMITIVE_INPUT_DIVISIONS)
 
         if radius is None:
-            self.radius: float = np.sqrt(1/np.pi * np.log(n_samples) * ((10**4) / n_samples))
-            print(f'Radius selected to be: ', np.round(self.radius, decimals=3))
+            self.radius: float = np.sqrt(1 / np.pi * np.log(n_samples) *
+                                         ((10**4) / n_samples))
+            print(f'Radius selected to be: ', np.round(self.radius,
+                                                       decimals=3))
         else:
             self.radius: float = radius
 
     def plan_path(
         self, spacecraft_state: SpacecraftState
-    ) -> Callable[[float], Tuple[float, float]]:
+    ) -> Callable[[float], SpacecraftCommands]:
         t_start = time.time()
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
         t_rrt = time.time() - t_start
@@ -98,6 +100,17 @@ class RRT:
         self.tree_idx = {}
         self.tree = nx.DiGraph
 
+        def policy(time: float) -> SpacecraftCommands:
+            assert time >= 0
+            t = 0
+            for trajectory in motion_path:
+                t += trajectory.tf
+                if t > time:
+                    break
+            l = trajectory.commands[0].acc_left
+            r = trajectory.commands[0].acc_right
+            return SpacecraftCommands(l, r)
+
         if plot:
             # plot
             matplotlib.use('TkAgg')
@@ -106,11 +119,11 @@ class RRT:
             # plot rrt_path
             pos = np.array([node.pos for node in rrt_path])
             ax1.plot(pos[:, 0],
-                    pos[:, 1],
-                    color="red",
-                    zorder=100,
-                    marker='*',
-                    label="RRT path")
+                     pos[:, 1],
+                     color="red",
+                     zorder=100,
+                     marker='*',
+                     label="RRT path")
 
             # plot motion path
             pos = []
@@ -118,7 +131,17 @@ class RRT:
                 for state in trajectory.states:
                     pos.append([state.x, state.y])
             pos = np.array(pos)
-            ax1.plot(pos[:, 0], pos[:, 1], zorder=90, label="motion path")
+            ax1.plot(pos[:, 0],
+                     pos[:, 1],
+                     zorder=90,
+                     label="motion path",
+                     color="orange")
+            # plot policy path
+            total_time = np.sum([trajectory.tf for trajectory in motion_path])
+            policy_path = self.motion_primitives.test_dynamics(spacecraft_state, policy, total_time)
+            policy_pos = np.array([[state.x, state.y] for state in policy_path])
+            ax1.plot(policy_pos[:,0], policy_pos[:,1], zorder=90, label="policy_path", color="cyan")
+        
             ax1.legend()
 
             t = 0
@@ -129,13 +152,12 @@ class RRT:
                 r = trajectory.commands[0].acc_right
                 acc.append([t, l, r])
                 for i, state in enumerate(trajectory.states):
+                    t_sub = t + (i / len(trajectory.states)) * trajectory.tf
+                    acc.append([t_sub, *policy(t_sub).as_ndarray()])
                     v = list(state.as_ndarray())
-                    states.append(
-                        [t + (i / len(trajectory.states)) * trajectory.tf] + v)
+                    states.append([t_sub] + v)
                 t += trajectory.tf
 
-            # append last state for proper step plotting
-            acc.append([t, *acc[-1][1:]])
 
             acc = np.array(acc)
             states = np.array(states)
@@ -152,19 +174,9 @@ class RRT:
             f.show()
             plt.show()
 
-        def policy(time: float) -> Tuple[float, float]:
-            assert time >= 0
-            t = 0
-            for trajectory in motion_path:
-                t += trajectory.tf
-                if t > time:
-                    break
-            return trajectory.commands[0].acc_left, trajectory.commands[0].acc_right
-
         return policy
 
-    def plan_rrt_path(self,
-                      spacecraft_state: SpacecraftState) -> List[Node]:
+    def plan_rrt_path(self, spacecraft_state: SpacecraftState) -> List[Node]:
 
         # add start point to point-cloud (pc)
         root_idx = self._add_root(spacecraft_state)
@@ -183,7 +195,8 @@ class RRT:
             self._update_graph(idx)
 
         if plot:
-            ax = self._draw_obstacles()
+            ax = plt.gca()
+            ax = self._draw_obstacles(ax)
             self._plotter(ax)
 
         rrt_path = self._get_optimal_rrt_path()
@@ -224,11 +237,12 @@ class RRT:
             norms = np.linalg.norm(projected_np - primitive_pos, axis=1)
             vel = np.array(
                 [np.abs([state.vx, state.vy]) for state in primitive.states])
-            deviation_err = np.max(norms)**2
             control_input = np.array([
                 primitive.commands[0].acc_left, primitive.commands[0].acc_right
             ])
+            deviation_err = np.max(norms)**2
             control_err = np.linalg.norm(control_input)**2
+            max_vel = np.max(np.linalg.norm(vel, axis=1))
             # cost_err = primitive.get_cost()
             # print(deviation_err, control_err)
             return deviation_err

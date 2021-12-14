@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Callable
 import numpy as np
 import math
 from numpy.matrixlib import defmatrix
@@ -77,10 +77,11 @@ class MotionPrimitives:
 
         self.primitive_database: Dict[str, TrajectoryGroup] = dict()
 
-    def get_primitives_from(
-            self, start: SpacecraftState, plot=False) -> List[SpacecraftTrajectory]:
+    def get_primitives_from(self,
+                            start: SpacecraftState,
+                            plot=False) -> List[SpacecraftTrajectory]:
         # discrete = self._discretize_state(start)
-        
+
         # get trajectory group and create it if not present
         # discrete_repr = repr(discrete)
         # if discrete_repr not in self.primitive_database:
@@ -126,10 +127,10 @@ class MotionPrimitives:
             y=0,
             psi=closest(state.psi,
                         np.linspace(0, 2 * np.pi, 5 * steps)[:-1]),
-            vx=closest(state.vx, np.linspace(limit_vel[0], limit_vel[1],
-                                             2*steps)),
-            vy=closest(state.vy, np.linspace(limit_vel[0], limit_vel[1],
-                                             2*steps)),
+            vx=closest(state.vx,
+                       np.linspace(limit_vel[0], limit_vel[1], 2 * steps)),
+            vy=closest(state.vy,
+                       np.linspace(limit_vel[0], limit_vel[1], 2 * steps)),
             dpsi=closest(state.dpsi,
                          np.linspace(limit_dpsi[0], limit_dpsi[1], steps)))
 
@@ -156,10 +157,7 @@ class MotionPrimitives:
                         tf: float,
                         dt: float = 0.1) -> SpacecraftTrajectory:
         # express initial state
-        y0 = np.array([
-            spacecraft_t0.x, spacecraft_t0.y, spacecraft_t0.psi,
-            spacecraft_t0.vx, spacecraft_t0.vy, spacecraft_t0.dpsi
-        ])
+        y0 = spacecraft_t0.as_ndarray()
 
         def dynamics(t, y):
             px, py, vx, vy, psi, dpsi = y
@@ -188,19 +186,18 @@ class MotionPrimitives:
             ret[5] = ddpsi
             return ret
 
-        sol = solve_ivp(fun=dynamics, t_span=(0.0, tf), y0=y0, vectorized=True,method="RK23", rtol=1e-4)
+        sol = solve_ivp(fun=dynamics,
+                        t_span=(0.0, tf),
+                        y0=y0,
+                        vectorized=True)
+                        # method="RK23",
+                        # rtol=1e-4)
 
         assert sol.success, f"Solving the IVP for ({u.acc_left}, {u.acc_right}) failed"
         states: List[SpacecraftState] = []
         for i in range(sol.y.shape[1]):
             s = sol.y[:, i]
-            states.append(
-                SpacecraftState(x=s[0],
-                                y=s[1],
-                                psi=s[2],
-                                vx=s[3],
-                                vy=s[4],
-                                dpsi=s[5]))
+            states.append(SpacecraftState.from_array(s))
         return SpacecraftTrajectory([u], states, 0., tf, dt)
 
     def _max_distance_covered(self) -> float:
@@ -221,6 +218,23 @@ class MotionPrimitives:
             y = [s.y for s in trajectory.states]
             plt.plot(x, y)
         plt.show()
+
+    def test_dynamics(self,
+                      start_state: SpacecraftState,
+                      policy: Callable[[float], SpacecraftCommands],
+                      tf: float,
+                      dt: float = 0.05):
+
+        t = 0
+        states: List[SpacecraftState] = [start_state]
+        while t <= tf:
+            start_state = states[-1]
+            new_states = self._get_trajectory(start_state, policy(t), dt,
+                                              dt).states
+            states += new_states
+            t += dt
+
+        return states
 
 
 if __name__ == "__main__":

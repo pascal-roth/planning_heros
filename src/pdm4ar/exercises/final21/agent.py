@@ -29,7 +29,7 @@ class Pdm4arAgent(Agent):
         self.name = None
 
         self.rrt: RRT = RRT(self.goal, self.static_obstacles, self.sg)
-        self.policy: Callable[[float], Tuple[float, float]] = None
+        self.policy: Callable[[float], SpacecraftCommands] = None
         self.prev_sim_time: float = -1.
 
     def on_episode_init(self, my_name: PlayerName):
@@ -47,7 +47,6 @@ class Pdm4arAgent(Agent):
         if not self.policy:
             self.policy = self.rrt.plan_path(sim_obs.players['PDM4AR'].state)
 
-        acc_left, acc_right = self.policy(sim_obs.time)
-        command = SpacecraftCommands(-acc_left, -acc_right)
+        command = self.policy(sim_obs.time)
         print(f"policy at time {sim_obs.time} -> {command}")
         return command
