@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Callable, Tuple
 
 from dg_commons import PlayerName
 from dg_commons import sim
@@ -29,7 +29,8 @@ class Pdm4arAgent(Agent):
         self.name = None
 
         self.rrt: RRT = RRT(self.goal, self.static_obstacles, self.sg)
-        self.prev_sim_time:float = -1.
+        self.policy: Callable[[float], Tuple[float, float]] = None
+        self.prev_sim_time: float = -1.
 
     def on_episode_init(self, my_name: PlayerName):
         self.name = my_name
@@ -43,9 +44,10 @@ class Pdm4arAgent(Agent):
         :param sim_obs:
         :return:
         """
-        policy = self.rrt.plan_path(sim_obs.players['PDM4AR'].state)
+        if not self.policy:
+            self.policy = self.rrt.plan_path(sim_obs.players['PDM4AR'].state)
 
-        acc_left, acc_right = policy(sim_obs.time)        
+        acc_left, acc_right = self.policy(sim_obs.time)
         command = SpacecraftCommands(acc_left, acc_right)
         print(f"policy at time {sim_obs.time} -> {command}")
         return command
