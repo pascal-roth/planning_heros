@@ -6,6 +6,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 from typing import Sequence, Optional, Callable, Dict, List, Tuple
 from shapely.geometry import Point, LineString
+import networkx as nx
+import heapq
+from collections import defaultdict
 
 from dg_commons.planning import PolygonGoal
 from dg_commons.sim.models.obstacles import StaticObstacle
@@ -20,11 +23,8 @@ from pdm4ar.exercises.final21.rrt.sampler import Sampler
 from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
 
-from scipy import interpolate
-
-import networkx as nx
-import heapq
-from collections import defaultdict
+# use plots in developmend, turn off for simulation
+plot = False
 
 
 class Node:
@@ -46,9 +46,9 @@ class RRT:
                  goal: PolygonGoal,
                  static_obstacles: Sequence[StaticObstacle],
                  sg: SpacecraftGeometry,
-                 n_samples: int = 1000,
+                 n_samples: int = 500,
                  distance_metric: DistanceMetric = DistanceMetric.L2,
-                 radius: Optional[float] = 10):
+                 radius: Optional[float] = None):
         """
         :param goal:                Goal Polygon
         :param static_obstacles:    Obstacles in the given environment, note that obstacle 0 is the boundary of the
@@ -63,7 +63,8 @@ class RRT:
         # init sampler and point cloud
         self.n_samples: int = n_samples
         self.sampler: Sampler = Sampler(static_obstacles, n_samples=n_samples)
-        # self.sampler.plot_samples(self.goal)
+        if plot:
+            self.sampler.plot_samples(self.goal)
 
         # init distance calculation (atm with brute force distance and euclidean distance)
         self.distance = Distance(distance_metric)
@@ -74,8 +75,12 @@ class RRT:
         self.tree_idx: Dict[int, Node] = {}
         self.motion_primitives = MotionPrimitives(
             self.sg, MOTION_PRIMITIVE_INPUT_DIVISIONS)
-        # self.radius = self.motion_primitives.max_distance_covered
-        self.radius = radius
+
+        if radius is None:
+            self.radius: float = np.sqrt(1/np.pi * np.log(n_samples) * ((10**4) / n_samples))
+            print(f'Radius selected to be: ', np.round(self.radius, decimals=3))
+        else:
+            self.radius: float = radius
 
     def plan_path(
         self, spacecraft_state: SpacecraftState
@@ -89,49 +94,40 @@ class RRT:
         print(f'Planned motion path, total: {t_rrt + t_motion:.2f}s, rrt: {t_rrt:.2f}s, motion: {t_motion:.2f}s')
         # clear tree_idx and tree
         self.tree_idx = {}
-        self.tree = nx.DiGraph
-        # plot
-        ax = self._draw_obstacles()
-        # plot rrt_path
-        pos = np.array([node.pos for node in rrt_path])
-        plt.plot(pos[:, 0], pos[:, 1], color="red", zorder=100, marker='*')
+        self.tree = nx.DiGraph()
 
-        # plot motion path
-        for trajectory in motion_path:
-            pos = np.array([[s.x, s.y] for s in trajectory.states])
-            # vel = np.array(
-            #     [np.linalg.norm([s.vx, s.vy]) for s in trajectory.states])
-            # vel /= np.max(vel)
-            # plt.scatter(pos[:, 0],
-            #             pos[:, 1],
-            #             c=cm.viridis(vel),
-            #             zorder=100,
-            #             edgecolor="none")
-            plt.plot(pos[:, 0], pos[:, 1], zorder=90)
-        plt.show()
-        plt.figure()
-        t = 0
-        inputs = []
-        # vel = []
-        for trajectory in motion_path:
-            l = trajectory.commands[0].acc_left
-            r = trajectory.commands[0].acc_right
-            inputs.append([t, l, r])
+        if plot:
+            # plot
+            ax = self._draw_obstacles()
+            # plot rrt_path
+            pos = np.array([node.pos for node in rrt_path])
+            plt.plot(pos[:, 0], pos[:, 1], color="red", zorder=100, marker='*')
+            # plot motion path
+            for trajectory in motion_path:
+                pos = np.array([[s.x, s.y] for s in trajectory.states])
+                plt.plot(pos[:, 0], pos[:, 1], zorder=90)
+
+            plt.show()
+            plt.figure()
+            t = 0
+            inputs = []
             vel = []
-            for i, state in enumerate(trajectory.states):
-                v = np.linalg.norm([state.vx, state.vy])
-                vel.append(
-                    [t + (i / len(trajectory.states)) * trajectory.tf, v])
+            for trajectory in motion_path:
+                l = trajectory.commands[0].acc_left
+                r = trajectory.commands[0].acc_right
+                inputs.append([t, l, r])
+                for i, state in enumerate(trajectory.states):
+                    v = np.linalg.norm([state.vx, state.vy])
+                    vel.append(
+                        [t + (i / len(trajectory.states)) * trajectory.tf, v])
+                t += trajectory.tf
+            inputs = np.array(inputs)
             vel = np.array(vel)
-            plt.plot(vel[:, 0], vel[:, 1])
-            t += trajectory.tf
-
-        inputs = np.array(inputs)
-        # vel = np.array(vel)
-        plt.plot(inputs[:, 0], inputs[:, 1], label="$l$")
-        plt.plot(inputs[:, 0], inputs[:, 2], label="$r$")
-        plt.legend()
-        plt.show()
+            plt.plot(inputs[:, 0], inputs[:, 1], label="left")
+            plt.plot(inputs[:, 0], inputs[:, 2], label="right")
+            plt.plot(vel[:, 0], vel[:, 1], label="velocity")
+            plt.legend()
+            plt.show()
 
         def policy(time: float) -> Tuple[float, float]:
             assert time >= 0
@@ -140,14 +136,12 @@ class RRT:
                 t += trajectory.tf
                 if t > time:
                     break
-            return trajectory.commands[0].acc_left, trajectory.commands[
-                0].acc_right
+            return trajectory.commands[0].acc_left, trajectory.commands[0].acc_right
 
         return policy
 
     def plan_rrt_path(self,
-                      spacecraft_state: SpacecraftState,
-                      plot: bool = False) -> List[Node]:
+                      spacecraft_state: SpacecraftState) -> List[Node]:
 
         # add start point to point-cloud (pc)
         root_idx = self._add_root(spacecraft_state)
