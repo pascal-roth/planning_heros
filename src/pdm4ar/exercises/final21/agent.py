@@ -48,6 +48,6 @@ class Pdm4arAgent(Agent):
             self.policy = self.rrt.plan_path(sim_obs.players['PDM4AR'].state)
 
         acc_left, acc_right = self.policy(sim_obs.time)
-        command = SpacecraftCommands(acc_left, acc_right)
+        command = SpacecraftCommands(-acc_left, -acc_right)
         print(f"policy at time {sim_obs.time} -> {command}")
         return command
