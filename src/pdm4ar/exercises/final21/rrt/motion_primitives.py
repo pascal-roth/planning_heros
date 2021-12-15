@@ -1,10 +1,11 @@
 from typing import List, Tuple, Dict, Callable
 from dg_commons.sim.models.model_utils import apply_acceleration_limits, apply_rot_speed_constraint
+from dg_commons.sim.models.spacecraft_structures import SpacecraftParameters
 import numpy as np
 import math
 from numpy.matrixlib import defmatrix
 from scipy.integrate import solve_ivp
-from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftState, SpacecraftGeometry
+from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftModel, SpacecraftState, SpacecraftGeometry
 
 import matplotlib.pyplot as plt
 import matplotlib
@@ -158,39 +159,32 @@ class MotionPrimitives:
                         tf: float,
                         dt: float = 0.1) -> SpacecraftTrajectory:
         # express initial state
+        model = SpacecraftModel(spacecraft_t0, self.sg, SpacecraftParameters.default())
         y0 = spacecraft_t0.as_ndarray()
 
+        def _stateactions_from_array(y: np.ndarray):
+            n_states = SpacecraftState.get_n_states()
+            state = SpacecraftState.from_array(y[0:n_states])
+
+            actions = SpacecraftCommands(
+                acc_left=y[SpacecraftCommands.idx["acc_left"] + n_states],
+                acc_right=y[SpacecraftCommands.idx["acc_right"] + n_states],
+            )
+            return state, actions
+
         def dynamics(t, y):
-            px, py, vx, vy, psi, dpsi = y
+            s0, actions = _stateactions_from_array(y=y)
+            dx = model.dynamics(x0=s0, u=actions)
+            du = np.zeros([len(SpacecraftCommands.idx)])
+            return np.concatenate([dx.as_ndarray(), du])
 
-            acc_left = apply_acceleration_limits(u.acc_left, self.motion_constrains.spacecraft_params())
-            acc_right = apply_acceleration_limits(u.acc_right, self.motion_constrains.spacecraft_params())
-            acc_sum = acc_right + acc_left
-            acc_diff = acc_right - acc_left
-
-            costh = np.cos(psi)
-            sinth = np.sin(psi)
-            dx = vx * costh - vy * sinth
-            dy = vx * sinth + vy * costh
-
-            ax = acc_sum + vy * dpsi
-            ay = -vx * dpsi
-            ddpsi = self.sg.w_half * self.sg.m / self.sg.Iz * acc_diff  # need to be saturated first
-            ddpsi = apply_rot_speed_constraint(float(dpsi), float(ddpsi), self.motion_constrains.spacecraft_params())
-
-            ret = np.zeros((6, ))
-            ret[0] = dx
-            ret[1] = dy
-            ret[2] = dpsi
-            ret[3] = ax
-            ret[4] = ay
-            ret[5] = ddpsi
-            return ret
+        state_np = spacecraft_t0.as_ndarray()
+        action_np = u.as_ndarray()
+        y0 = np.concatenate([state_np, action_np])
 
         sol = solve_ivp(fun=dynamics,
                         t_span=(0.0, tf),
-                        y0=y0,
-                        vectorized=True)
+                        y0=y0)
                         # method="RK23",
                         # rtol=1e-4)
 
@@ -198,7 +192,7 @@ class MotionPrimitives:
         states: List[SpacecraftState] = []
         for i in range(sol.y.shape[1]):
             s = sol.y[:, i]
-            states.append(SpacecraftState.from_array(s))
+            states.append(SpacecraftState.from_array(s[:-2]))
         return SpacecraftTrajectory([u], states, 0., tf, dt)
 
     def _max_distance_covered(self) -> float:

@@ -1,6 +1,6 @@
 from os import device_encoding
 import time
-from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
+from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry, SpacecraftParameters
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from dg_commons.planning import PolygonGoal
 from dg_commons.sim.models.obstacles import StaticObstacle
-from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftState
+from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftModel, SpacecraftState
 from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
 
@@ -138,7 +138,8 @@ class RRT:
                      color="orange")
             # plot policy path
             total_time = np.sum([trajectory.tf for trajectory in motion_path])
-            self.policy_path = self.motion_primitives.test_dynamics(spacecraft_state, policy, total_time)
+            # self.policy_path = self.motion_primitives.test_dynamics(spacecraft_state, policy, total_time)
+            self.policy_path = self.test_dynamics(spacecraft_state, policy, total_time)
             policy_pos = np.array([[state.x, state.y] for state in self.policy_path])
             ax1.plot(policy_pos[:,0], policy_pos[:,1], zorder=90, label="policy_path", color="cyan")
         
@@ -175,6 +176,19 @@ class RRT:
             plt.show()
 
         return policy
+
+    def test_dynamics(self, init: SpacecraftState, policy, total_time:float):
+        sp = SpacecraftParameters.default()
+        model = SpacecraftModel(init, self.sg, sp)
+        dt = 0.05
+        states = [init] 
+        t = 0 
+        while t < total_time:
+            model.update(policy(t), dt)
+            states.append(model._state)
+            t += dt
+        return states
+
 
     def plan_rrt_path(self, spacecraft_state: SpacecraftState) -> List[Node]:
 
