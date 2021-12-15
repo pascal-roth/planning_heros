@@ -6,7 +6,7 @@ CONSTRAIN_VEL_LIN: int = 50
 CONSTRAIN_VEL_ANG: float = 2 * np.pi
 
 # Motion primitives
-DELTAT_LIMIT = .5
+DELTAT = 1
 MOTION_PRIMITIVE_INPUT_DIVISIONS: int = 20
 MOTION_PRIMITIVE_STATE_DIVISIONS: int = 5
 STEERING_MAX_DIST: float = 10.
@@ -19,4 +19,7 @@ MIN_CURVATURE = 1e-3
 PRUNE_ITERATIONS = 1
 
 # Buffer (Inflate) Obstacles by Distance
-BUFFER_DISTANCE = 4
+BUFFER_DISTANCE = 2
+
+# Game world size 0 -> 100 in x,y
+WORLD_SIZE = (100, 100)

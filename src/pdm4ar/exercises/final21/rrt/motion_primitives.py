@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 
 from pdm4ar.exercises.final21.rrt.motion_constrains import MotionConstrains
-from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT_LIMIT, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS
+from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS
 from scipy.spatial import KDTree
 
 
@@ -149,7 +149,7 @@ class MotionPrimitives:
                 if acc_diff > MAX_ABS_ACC_DIFF:
                     continue
                 command = SpacecraftCommands(acc_left[i, j], acc_right[i, j])
-                trajectory = self._get_trajectory(state, command, DELTAT_LIMIT)
+                trajectory = self._get_trajectory(state, command, DELTAT)
                 primitives.append(trajectory)
         return primitives
 
@@ -184,9 +184,7 @@ class MotionPrimitives:
 
         sol = solve_ivp(fun=dynamics,
                         t_span=(0.0, tf),
-                        y0=y0)
-                        # method="RK23",
-                        # rtol=1e-4)
+                        y0=y0, vectorized=False, method="RK23")
 
         assert sol.success, f"Solving the IVP for ({u.acc_left}, {u.acc_right}) failed"
         states: List[SpacecraftState] = []

@@ -15,6 +15,7 @@ from dg_commons.sim.models.obstacles import StaticObstacle
 from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftModel, SpacecraftState
 from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
+from pdm4ar.exercises.final21.rrt.collision import CollisionChecker
 
 from pdm4ar.exercises.final21.rrt.motion_primitives import MotionPrimitives, SpacecraftTrajectory
 from pdm4ar.exercises.final21.rrt.params import MAX_GOAL_VEL, MOTION_PRIMITIVE_INPUT_DIVISIONS, MIN_CURVATURE, \
@@ -24,7 +25,7 @@ from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
 
 # use plots in developmend, turn off for simulation
-plot = True
+plot = False
 
 
 class Node:
@@ -75,6 +76,7 @@ class RRT:
         self.tree_idx: Dict[int, Node] = {}
         self.motion_primitives = MotionPrimitives(
             self.sg, MOTION_PRIMITIVE_INPUT_DIVISIONS)
+        self.collision_checker = CollisionChecker(static_obstacles)
 
         if radius is None:
             self.radius: float = np.sqrt(1 / np.pi * np.log(n_samples) *
@@ -96,6 +98,7 @@ class RRT:
         print(
             f'Planned motion path, total: {t_rrt + t_motion:.2f}s, rrt: {t_rrt:.2f}s, motion: {t_motion:.2f}s'
         )
+        print(f"motion path goal state: {motion_path[-1]}")
         # clear tree_idx and tree
         self.tree_idx = {}
         self.tree = nx.DiGraph
@@ -139,10 +142,16 @@ class RRT:
             # plot policy path
             total_time = np.sum([trajectory.tf for trajectory in motion_path])
             # self.policy_path = self.motion_primitives.test_dynamics(spacecraft_state, policy, total_time)
-            self.policy_path = self.test_dynamics(spacecraft_state, policy, total_time)
-            policy_pos = np.array([[state.x, state.y] for state in self.policy_path])
-            ax1.plot(policy_pos[:,0], policy_pos[:,1], zorder=90, label="policy_path", color="cyan")
-        
+            self.policy_path = self.test_dynamics(spacecraft_state, policy,
+                                                  total_time)
+            policy_pos = np.array([[state.x, state.y]
+                                   for state in self.policy_path])
+            ax1.plot(policy_pos[:, 0],
+                     policy_pos[:, 1],
+                     zorder=90,
+                     label="policy_path",
+                     color="cyan")
+
             ax1.legend()
 
             t = 0
@@ -158,7 +167,6 @@ class RRT:
                     v = list(state.as_ndarray())
                     states.append([t_sub] + v)
                 t += trajectory.tf
-
 
             acc = np.array(acc)
             states = np.array(states)
@@ -177,18 +185,17 @@ class RRT:
 
         return policy
 
-    def test_dynamics(self, init: SpacecraftState, policy, total_time:float):
+    def test_dynamics(self, init: SpacecraftState, policy, total_time: float):
         sp = SpacecraftParameters.default()
         model = SpacecraftModel(init, self.sg, sp)
         dt = 0.05
-        states = [init] 
-        t = 0 
+        states = [init]
+        t = 0
         while t < total_time:
             model.update(policy(t), dt)
             states.append(model._state)
             t += dt
         return states
-
 
     def plan_rrt_path(self, spacecraft_state: SpacecraftState) -> List[Node]:
 
@@ -221,13 +228,17 @@ class RRT:
         rrt_line = LineString([node.pos for node in rrt_path])
         # A*
         state = start
+        deviation_costs = defaultdict(lambda: np.inf)
+        deviation_costs[state] = 0
         costs = defaultdict(lambda: np.inf)
         costs[state] = 0
+
         parents = dict()
         frontier = []
         primitives = dict()
         primitives[state] = None
-        heapq.heappush(frontier, (costs[state], state))
+        heapq.heappush(frontier,
+                       (costs[state] + deviation_costs[state], state))
 
         def is_goal(state: SpacecraftState) -> bool:
             in_goal = self.goal.goal.contains(Point([state.x, state.y]))
@@ -238,9 +249,10 @@ class RRT:
                 print(f"too fast: {speed}")
             return in_goal and slow
 
-        def cost(primitive: SpacecraftTrajectory) -> float:
+        def cost(primitive: SpacecraftTrajectory) -> Tuple[float, float]:
             primitive_pos = np.array([[state.x, state.y]
                                       for state in primitive.states])
+
             projected = [
                 rrt_line.interpolate(
                     rrt_line.project(Point([state.x, state.y])))
@@ -254,16 +266,39 @@ class RRT:
             control_input = np.array([
                 primitive.commands[0].acc_left, primitive.commands[0].acc_right
             ])
-            deviation_err = np.max(norms)**2
-            control_err = np.linalg.norm(control_input)**2
-            max_vel = np.max(np.linalg.norm(vel, axis=1))
+            goal_dist = np.linalg.norm(rrt_path[-1].pos -
+                                       np.array([state.x, state.y]))
+            deviation_err = np.max(norms)
+            control_err = np.linalg.norm(control_input)
+            end_vel = np.linalg.norm(vel[-1, :])
+
+            # collision cost
+            primitive_line = LineString(primitive_pos)
+            even_division = [
+                primitive_line.interpolate(offset)
+                for offset in np.arange(0, primitive_line.length, 1)
+            ]
+            even_pts = np.array([[pt.x, pt.y] for pt in even_division])
+            is_collding, min_dist = self.collision_checker.collding(even_pts)
+            collsion_cost = 0
+            if is_collding:
+                collsion_cost = np.inf
+            else:
+                collsion_cost = 1 / (min_dist - self.sg.w_half)
+
+            # angle = primitive.states[-1].p
             # cost_err = primitive.get_cost()
             # print(deviation_err, control_err)
-            return deviation_err
+            return deviation_err**2, (end_vel / goal_dist) + collsion_cost
 
         def heuristic(state: SpacecraftState) -> float:
-            return np.linalg.norm(rrt_path[-1].pos -
-                                  np.array([state.x, state.y]))
+            # path_dist = rrt_line.length - rrt_line.project(Point([state.x, state.y]))
+            # if path_dist < 5:
+            pos = np.array([state.x, state.y])
+            goal = rrt_path[-1].pos
+            dist = np.linalg.norm(goal - pos)
+            # path_dist = dist
+            return dist
 
         i = 0
         while len(frontier) > 0:
@@ -271,11 +306,11 @@ class RRT:
             i += 1
             if i % 10 == 0:
                 print(
-                    f"{i}: priority: {prio:.2f}, cost: {costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
+                    f"{i}: priority: {prio:.2f}, cost: {deviation_costs[state]:.2f} + {costs[state]:.2f} = {deviation_costs[state] + costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
                 )
             if is_goal(state):
                 print(
-                    f"{i}: priority: {prio:.2f}, cost: {costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
+                    f"{i}: priority: {prio:.2f}, cost: {deviation_costs[state]:.2f} + {costs[state]:.2f} = {deviation_costs[state] + costs[state]:.2f}, heuristic: {heuristic(state):.2f}"
                 )
                 path = []
                 p = state
@@ -291,14 +326,20 @@ class RRT:
                 return motion_path[1:]
             for primitive in self.motion_primitives.get_primitives_from(state):
                 end_state = primitive.states[-1]
-                new_cost = np.max([costs[state], cost(primitive)])
+
+                deviation_cost, c = cost(primitive)
+                deviation_cost = max(deviation_costs[state], deviation_cost)
+                c = costs[state] + c
+                total_cost = deviation_cost + c
+
                 primitives[end_state] = primitive
-                f = new_cost + heuristic(end_state)
-                if new_cost < costs[end_state]:
-                    costs[end_state] = new_cost
+                f = total_cost + heuristic(end_state)
+                if total_cost < deviation_costs[end_state]:
+                    deviation_costs[end_state] = deviation_cost
+                    costs[end_state] = c
                     parents[end_state] = state
                     heapq.heappush(frontier, (f, end_state))
-        return []
+        raise RuntimeError("could not find motion path from start to goal")
 
     def _add_root(self, spacecraft_state: SpacecraftState) -> int:
         x_start = np.expand_dims(np.array(
