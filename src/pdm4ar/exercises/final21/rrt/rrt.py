@@ -25,7 +25,7 @@ from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
 
 # use plots in developmend, turn off for simulation
-plot = False
+plot = True
 
 
 class Node:
