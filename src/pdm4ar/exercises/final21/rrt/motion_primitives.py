@@ -175,7 +175,6 @@ class MotionPrimitives:
 
             ax = acc_sum + vy * dpsi
             ay = -vx * dpsi
-            dpsi = psi
             ddpsi = self.sg.w_half * self.sg.m / self.sg.Iz * acc_diff  # need to be saturated first
             ddpsi = apply_rot_speed_constraint(float(dpsi), float(ddpsi), self.motion_constrains.spacecraft_params())
 
