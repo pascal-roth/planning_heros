@@ -138,8 +138,8 @@ class RRT:
                      color="orange")
             # plot policy path
             total_time = np.sum([trajectory.tf for trajectory in motion_path])
-            policy_path = self.motion_primitives.test_dynamics(spacecraft_state, policy, total_time)
-            policy_pos = np.array([[state.x, state.y] for state in policy_path])
+            self.policy_path = self.motion_primitives.test_dynamics(spacecraft_state, policy, total_time)
+            policy_pos = np.array([[state.x, state.y] for state in self.policy_path])
             ax1.plot(policy_pos[:,0], policy_pos[:,1], zorder=90, label="policy_path", color="cyan")
         
             ax1.legend()

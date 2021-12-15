@@ -32,7 +32,7 @@ class CollisionChecker:
         delta_x = pt_end[0] - pt_start[0]
         delta_y = pt_end[1] - pt_start[1]
         pts_on_line = [np.array([pt_start[0] + step * delta_x, pt_start[1] + delta_y * step]) for step in
-                       np.arange(0.25, 0.1, 0.25)]
+                       np.arange(0.25, 1, 0.25)]
         return all(self.is_collision_free(np.array(pts_on_line)))
 
     def obstacle_distance(self, point_cloud: np.ndarray) -> None:

@@ -1,4 +1,5 @@
 from typing import List, Tuple, Dict, Callable
+from dg_commons.sim.models.model_utils import apply_acceleration_limits, apply_rot_speed_constraint
 import numpy as np
 import math
 from numpy.matrixlib import defmatrix
@@ -161,8 +162,9 @@ class MotionPrimitives:
 
         def dynamics(t, y):
             px, py, vx, vy, psi, dpsi = y
-            acc_left = self.motion_constrains.apply_acc_limit(u.acc_left)
-            acc_right = self.motion_constrains.apply_acc_limit(u.acc_right)
+
+            acc_left = apply_acceleration_limits(u.acc_left, self.motion_constrains.spacecraft_params())
+            acc_right = apply_acceleration_limits(u.acc_right, self.motion_constrains.spacecraft_params())
             acc_sum = acc_right + acc_left
             acc_diff = acc_right - acc_left
 
@@ -175,7 +177,7 @@ class MotionPrimitives:
             ay = -vx * dpsi
             dpsi = psi
             ddpsi = self.sg.w_half * self.sg.m / self.sg.Iz * acc_diff  # need to be saturated first
-            ddpsi = self.motion_constrains.apply_dpsi_limit(ddpsi)
+            ddpsi = apply_rot_speed_constraint(float(dpsi), float(ddpsi), self.motion_constrains.spacecraft_params())
 
             ret = np.zeros((6, ))
             ret[0] = dx
