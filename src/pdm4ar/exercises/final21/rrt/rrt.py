@@ -93,7 +93,8 @@ class RRT:
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
         t_rrt = time.time() - t_start
         t_start = time.time()
-        motion_path, primitives = self.plan_motion_path(spacecraft_state, rrt_path)
+        motion_path, primitives = self.plan_motion_path(
+            spacecraft_state, rrt_path)
         t_motion = time.time() - t_start
         print(
             f'Planned motion path, total: {t_rrt + t_motion:.2f}s, rrt: {t_rrt:.2f}s, motion: {t_motion:.2f}s'
@@ -142,14 +143,15 @@ class RRT:
             pos = []
             for trajectory in primitives.values():
                 if trajectory:
-                    pos = np.array([[state.x, state.y]for state in trajectory.states])
+                    pos = np.array([[state.x, state.y]
+                                    for state in trajectory.states])
                     ax1.plot(pos[:, 0], pos[:, 1], alpha=0.1, color="gray")
 
             # plot policy path
             total_time = np.sum([trajectory.tf for trajectory in motion_path])
             # self.policy_path = self.motion_primitives.test_dynamics(spacecraft_state, policy, total_time)
-            self.policy_path = self.test_dynamics(spacecraft_state, policy,
-                                                  total_time)
+            policy_path_ts, self.policy_path = self.test_dynamics(
+                spacecraft_state, policy, total_time)
             policy_pos = np.array([[state.x, state.y]
                                    for state in self.policy_path])
             ax1.plot(policy_pos[:, 0],
@@ -162,7 +164,6 @@ class RRT:
 
             t = 0
             acc = []
-            states = []
             for trajectory in motion_path:
                 l = trajectory.commands[0].acc_left
                 r = trajectory.commands[0].acc_right
@@ -170,12 +171,14 @@ class RRT:
                 for i, state in enumerate(trajectory.states):
                     t_sub = t + (i / len(trajectory.states)) * trajectory.tf
                     acc.append([t_sub, *policy(t_sub).as_ndarray()])
-                    v = list(state.as_ndarray())
-                    states.append([t_sub] + v)
                 t += trajectory.tf
 
             acc = np.array(acc)
-            states = np.array(states)
+            states = np.array([
+                np.concatenate(
+                    ([policy_path_ts[i]], self.policy_path[i].as_ndarray()))
+                for i in range(len(self.policy_path))
+            ])
             ax2.step(acc[:, 0], acc[:, 1], label="$a_l$")
             ax2.step(acc[:, 0], acc[:, 2], label="$a_r$")
             # ax2.plot(states[:, 0], states[:, 1], label="$p_x$")
@@ -197,11 +200,13 @@ class RRT:
         dt = 0.05
         states = [init]
         t = 0
+        ts = [0]
         while t < total_time:
             model.update(policy(t), dt)
+            ts.append(t + dt)
             states.append(model._state)
             t += dt
-        return states
+        return ts, states
 
     def plan_rrt_path(self, spacecraft_state: SpacecraftState) -> List[Node]:
 
@@ -285,7 +290,8 @@ class RRT:
             #     for offset in np.arange(0, primitive_line.length, 1)
             # ]
             # even_pts = np.array([pt.xy for pt in even_division])
-            is_collding, min_dist = self.collision_checker.collding(primitive_pos)
+            is_collding, min_dist = self.collision_checker.collding(
+                primitive_pos)
             collsion_cost = 0
             if is_collding:
                 collsion_cost = np.inf
