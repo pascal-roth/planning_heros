@@ -93,7 +93,7 @@ class RRT:
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
         t_rrt = time.time() - t_start
         t_start = time.time()
-        motion_path = self.plan_motion_path(spacecraft_state, rrt_path)
+        motion_path, primitives = self.plan_motion_path(spacecraft_state, rrt_path)
         t_motion = time.time() - t_start
         print(
             f'Planned motion path, total: {t_rrt + t_motion:.2f}s, rrt: {t_rrt:.2f}s, motion: {t_motion:.2f}s'
@@ -139,6 +139,12 @@ class RRT:
                      zorder=90,
                      label="motion path",
                      color="orange")
+            pos = []
+            for trajectory in primitives.values():
+                if trajectory:
+                    pos = np.array([[state.x, state.y]for state in trajectory.states])
+                    ax1.plot(pos[:, 0], pos[:, 1], alpha=0.1, color="gray")
+
             # plot policy path
             total_time = np.sum([trajectory.tf for trajectory in motion_path])
             # self.policy_path = self.motion_primitives.test_dynamics(spacecraft_state, policy, total_time)
@@ -273,13 +279,13 @@ class RRT:
             end_vel = np.linalg.norm(vel[-1, :])
 
             # collision cost
-            primitive_line = LineString(primitive_pos)
-            even_division = [
-                primitive_line.interpolate(offset)
-                for offset in np.arange(0, primitive_line.length, 1)
-            ]
-            even_pts = np.array([[pt.x, pt.y] for pt in even_division])
-            is_collding, min_dist = self.collision_checker.collding(even_pts)
+            # primitive_line = LineString(primitive_pos)
+            # even_division = [
+            #     primitive_line.interpolate(offset)
+            #     for offset in np.arange(0, primitive_line.length, 1)
+            # ]
+            # even_pts = np.array([pt.xy for pt in even_division])
+            is_collding, min_dist = self.collision_checker.collding(primitive_pos)
             collsion_cost = 0
             if is_collding:
                 collsion_cost = np.inf
@@ -297,7 +303,6 @@ class RRT:
             pos = np.array([state.x, state.y])
             goal = rrt_path[-1].pos
             dist = np.linalg.norm(goal - pos)
-            # path_dist = dist
             return dist
 
         i = 0
@@ -323,7 +328,7 @@ class RRT:
                 motion_path = []
                 for p in reversed(path):
                     motion_path.append(primitives[p])
-                return motion_path[1:]
+                return motion_path[1:], primitives
             for primitive in self.motion_primitives.get_primitives_from(state):
                 end_state = primitive.states[-1]
 

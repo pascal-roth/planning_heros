@@ -184,7 +184,7 @@ class MotionPrimitives:
 
         sol = solve_ivp(fun=dynamics,
                         t_span=(0.0, tf),
-                        y0=y0, vectorized=False, method="RK23")
+                        y0=y0, vectorized=False, method="RK23", rtol=1e-4)
 
         assert sol.success, f"Solving the IVP for ({u.acc_left}, {u.acc_right}) failed"
         states: List[SpacecraftState] = []
