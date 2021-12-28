@@ -57,3 +57,14 @@ class DynamicObstacleSimulator:
             # occupancies are over approximated by the convex hull
             occupancies[name] = occupancy.convex_hull
         return occupancies
+
+    def get_planning_horizon(self, rrt_path):
+        """
+        Idea: determine distance between obstacle and the point on the rrt path/ motion primitive path where a collision
+        might happen for different times, choose time as planning horizon which is as large as possible without
+        violating a closeness constrain (if no collision between rrt and obstacle path, set planning horizon until
+        dynamic obstacle hits other obstacle if that does not happen as well, set it to infty -> static case)
+
+        :return:
+        """
+        pass
