@@ -1,11 +1,16 @@
+*.vscode
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
+# project specific 
+*.idea
+out-docker/
+out/
 # C extensions
 *.so
-*.idea
 
 # Distribution / packaging
 .Python
