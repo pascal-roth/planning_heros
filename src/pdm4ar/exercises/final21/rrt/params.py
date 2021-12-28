@@ -20,7 +20,7 @@ PRUNE_ITERATIONS = 1
 
 # Buffer (Inflate) Obstacles by Distance
 STATIC_BUFFER_DISTANCE = 2
-DYNAMIC_BUFFER_DISTANCE = 1
+DYNAMIC_BUFFER_DISTANCE = 2
 
 # Game world size 0 -> 100 in x,y
 WORLD_SIZE = (100, 100)
