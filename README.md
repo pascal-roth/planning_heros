@@ -39,9 +39,14 @@ $ make run-final21
   - Cost function
 - Time required for each motion primitive
 
+
+# Note
+
+The given setup has been evaluated on two additional, custom dgscenaries. In order to enable them, set the "custom_cases" flag in /src/pdma4ar/exercises_def/final21/ex.py:get_final21" to True
+
 # Progress Bar
 
 ```
-8=====================================D
+8==========================================D
 0---------------------------------------------1
 ```

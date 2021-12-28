@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt
 from numpy import deg2rad
 from shapely.geometry import Polygon, LinearRing
 
-__all__ = ["get_dgscenario"]
+__all__ = ["get_dgscenario", "get_dgscenario_adapted_1", "get_dgscenario_adapted_2"]
 
 
 def get_dgscenario(seed: Optional[int] = None) -> Tuple[DgScenario, PlanningGoal, X]:
@@ -44,4 +44,53 @@ def get_dgscenario(seed: Optional[int] = None) -> Tuple[DgScenario, PlanningGoal
     return DgScenario(static_obstacles=static_obstacles), goal, x0
 
 
+def get_dgscenario_adapted_1(seed: Optional[int] = None) -> Tuple[DgScenario, PlanningGoal, X]:
+    max_size = 100
+    shapes = []
+    bounds = LinearRing([(0, 0), (0, max_size), (max_size, max_size), (max_size, 0), (0, 0)])
+    poly1 = Polygon([[0, 0], [3, 0], [3, 3], [0, 3], [0, 0]])
+    poly2 = apply_SE2_to_shapely_geo(poly1, SE2_from_xytheta((7, 15, deg2rad(30))))
+    shapes += [bounds, poly2]
+    if seed is not None:
+        random.seed(seed)
 
+    positions = [(60, 40), (30, 10), (40, 70), (20, 85), (75, 80), (80, 30), ]
+    for pos in positions:
+        poly = Polygon(create_random_starshaped_polygon(*pos, 10, 0.5, 0.5, 10))
+        shapes.append(poly)
+
+    obstacles = list(map(StaticObstacle, shapes))
+    static_obstacles = dict(zip(range(len(obstacles)), obstacles))
+
+    x0 = SpacecraftState(x=14, y=2, psi=deg2rad(30), vx=3, vy=3, dpsi=-0.02)
+    goal_poly = Polygon(((max_size, max_size), (max_size - 10, max_size),
+                         (max_size - 10, max_size - 10), (max_size, max_size - 10)))
+    goal = PolygonGoal(goal_poly)
+
+    return DgScenario(static_obstacles=static_obstacles), goal, x0
+
+
+def get_dgscenario_adapted_2(seed: Optional[int] = None) -> Tuple[DgScenario, PlanningGoal, X]:
+    max_size = 100
+    shapes = []
+    bounds = LinearRing([(0, 0), (0, max_size), (max_size, max_size), (max_size, 0), (0, 0)])
+    poly1 = Polygon([[0, 0], [3, 0], [3, 3], [0, 3], [0, 0]])
+    poly2 = apply_SE2_to_shapely_geo(poly1, SE2_from_xytheta((7, 15, deg2rad(30))))
+    shapes += [bounds, poly2]
+    if seed is not None:
+        random.seed(seed)
+
+    positions = [(25, 40), (60, 10), (40, 70), (20, 60), (80, 60), (60, 70), ]
+    for pos in positions:
+        poly = Polygon(create_random_starshaped_polygon(*pos, 10, 0.5, 0.5, 10))
+        shapes.append(poly)
+
+    obstacles = list(map(StaticObstacle, shapes))
+    static_obstacles = dict(zip(range(len(obstacles)), obstacles))
+
+    x0 = SpacecraftState(x=50, y=7, psi=deg2rad(60), vx=3, vy=3, dpsi=0.06)
+    goal_poly = Polygon(((max_size, max_size), (max_size - 10, max_size),
+                         (max_size - 10, max_size - 10), (max_size, max_size - 10)))
+    goal = PolygonGoal(goal_poly)
+
+    return DgScenario(static_obstacles=static_obstacles), goal, x0
