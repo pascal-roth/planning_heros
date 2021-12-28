@@ -1,7 +1,6 @@
-from typing import Sequence, Callable, Tuple
+from typing import Sequence, Callable
 
 from dg_commons import PlayerName
-from dg_commons import sim
 from dg_commons.planning import PolygonGoal
 from dg_commons.sim import SimObservations
 from dg_commons.sim.agents import Agent
@@ -22,6 +21,7 @@ class Pdm4arAgent(Agent):
                  sg: SpacecraftGeometry, sp: SpacecraftGeometry):
         self.goal = goal
         self.static_obstacles = static_obstacles
+        self.dynamic_obstacles: bool = False
         self.sg = sg
         self.sp = sp
         self.name = None
@@ -43,8 +43,12 @@ class Pdm4arAgent(Agent):
         :return:
         """
         time = float(sim_obs.time)
-        # If more that PLANNING_HORIZON seconds have passed, replan the path
-        if self.last_path_update is None or self.last_path_update + PLANNING_HORIZON <= time:
+
+        if time == 0:
+            self.dynamic_obstacles = True if len(sim_obs.players) > 1 else False
+
+        if self.dynamic_obstacles and (self.last_path_update is None or
+                                       self.last_path_update + PLANNING_HORIZON <= time):
             self.policy = self.rrt.plan_path(
                 sim_obs.players[self.name].state,
                 other_players={
@@ -53,8 +57,15 @@ class Pdm4arAgent(Agent):
                     if name != self.name
                 })
             self.last_path_update = time
+        elif self.policy is None:
+            self.policy = self.rrt.plan_path(sim_obs.players[self.name].state)
+
+        if self.dynamic_obstacles:
+            eval_time = time - self.last_path_update
+        else:
+            eval_time = time
 
         # execute current policy
-        command = self.policy(time)
+        command = self.policy(eval_time)
         print(f"policy at time {sim_obs.time} -> {command}")
         return command

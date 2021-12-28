@@ -241,13 +241,13 @@ class MotionPrimitives:
 
         return states
 
-    def simulate_player(self,
-                        player: PlayerObservations,
-                        horizon: float = PLANNING_HORIZON,
-                        dt: float = 0.05) -> List[SpacecraftState]:
-        u = SpacecraftCommands(0, 0)
-        trajectory = self.get_trajectory(player.state, u, horizon, dt)
-        return trajectory.states
+    # def simulate_player(self,
+    #                     player: PlayerObservations,
+    #                     horizon: float = PLANNING_HORIZON,
+    #                     dt: float = 0.05) -> List[SpacecraftState]:
+    #     u = SpacecraftCommands(0, 0)
+    #     trajectory = self.get_trajectory(player.state, u, horizon, dt)
+    #     return trajectory.states
 
 
 

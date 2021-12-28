@@ -28,7 +28,7 @@ from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
 
 # use plots in developmend, turn off for simulation
-plot = True
+plot = False
 
 
 class Node:
@@ -93,7 +93,7 @@ class RRT:
     def plan_path(
         self,
         spacecraft_state: SpacecraftState,
-        other_players: List[PlayerObservations] = None
+        other_players: Dict[str, PlayerObservations] = None
     ) -> Callable[[float], SpacecraftCommands]:
         # initiate dynamic obstacle simulator if dynamic obstacles are present
         if other_players is not None and len(other_players) > 0:
@@ -115,7 +115,7 @@ class RRT:
         print(f"motion path goal state: {motion_path[-1]}")
         # clear tree_idx and tree
         self.tree_idx = {}
-        self.tree = nx.DiGraph
+        self.tree = nx.DiGraph()
 
         def policy(time: float) -> SpacecraftCommands:
             assert time >= 0
