@@ -1,10 +1,12 @@
 from os import device_encoding
 import time
 from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry, SpacecraftParameters
+from dg_commons.sim.simulator_structures import PlayerObservations
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from typing import Sequence, Optional, Callable, Dict, List, Tuple
+from shapely.coords import CoordinateSequence
 from shapely.geometry import Point, LineString
 import networkx as nx
 import heapq
@@ -16,6 +18,7 @@ from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftModel
 from dg_commons.maps.shapely_viz import ShapelyViz
 from dg_commons.sim.simulator_visualisation import ZOrders
 from pdm4ar.exercises.final21.rrt.collision import CollisionChecker
+from pdm4ar.exercises.final21.rrt.dynamic import DynamicObstacleSimulator
 
 from pdm4ar.exercises.final21.rrt.motion_primitives import MotionPrimitives, SpacecraftTrajectory
 from pdm4ar.exercises.final21.rrt.params import MAX_GOAL_VEL, MOTION_PRIMITIVE_INPUT_DIVISIONS, MIN_CURVATURE, \
@@ -76,7 +79,8 @@ class RRT:
         self.tree_idx: Dict[int, Node] = {}
         self.motion_primitives = MotionPrimitives(
             self.sg, MOTION_PRIMITIVE_INPUT_DIVISIONS)
-        self.collision_checker = CollisionChecker(static_obstacles)
+        self.collision_checker: CollisionChecker = None
+        self.dynamic_simulator: DynamicObstacleSimulator = None
 
         if radius is None:
             self.radius: float = np.sqrt(1 / np.pi * np.log(n_samples) *
@@ -87,8 +91,17 @@ class RRT:
             self.radius: float = radius
 
     def plan_path(
-        self, spacecraft_state: SpacecraftState
+        self,
+        spacecraft_state: SpacecraftState,
+        other_players: List[PlayerObservations] = None
     ) -> Callable[[float], SpacecraftCommands]:
+        # initiate dynamic obstacle simulator if dynamic obstacles are present
+        if other_players is not None and len(other_players) > 0:
+            self.dynamic_simulator = DynamicObstacleSimulator(
+                self.sg, other_players)
+        self.collision_checker = CollisionChecker(self.static_obstacles,
+                                                  self.dynamic_simulator)
+
         t_start = time.time()
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
         t_rrt = time.time() - t_start
@@ -140,12 +153,12 @@ class RRT:
                      zorder=90,
                      label="motion path",
                      color="orange")
-            pos = []
-            for trajectory in primitives.values():
-                if trajectory:
-                    pos = np.array([[state.x, state.y]
-                                    for state in trajectory.states])
-                    ax1.plot(pos[:, 0], pos[:, 1], alpha=0.1, color="gray")
+            # pos = []
+            # for trajectory in primitives.values():
+            #     if trajectory:
+            #         pos = np.array([[state.x, state.y]
+            #                         for state in trajectory.states])
+            #         ax1.plot(pos[:, 0], pos[:, 1], alpha=0.1, color="gray")
 
             # plot policy path
             total_time = np.sum([trajectory.tf for trajectory in motion_path])
@@ -220,7 +233,7 @@ class RRT:
         distance_idx_sorted = np.argsort(distance)
 
         # initialize distances between samples in the pc and the obstacles in the collision class
-        self.sampler.collision_checker.obstacle_distance(
+        self.collision_checker.obstacle_distance(
             self.sampler.pc2array())
 
         for idx in distance_idx_sorted:
@@ -388,7 +401,7 @@ class RRT:
         for idx, x_near in enumerate(near_nodes):
             pt_distance = self.cost_fct(x_near.pos, x_rand)
             # currently euclidean distance, if changed, cannot be passed anymore to collision check
-            collision_free = self.sampler.collision_checker.path_collision_free(
+            collision_free = self.collision_checker.path_collision_free(
                 x_near.pos, x_rand, pt_distance, idx)
             if collision_free and x_near.cost + pt_distance < c_min:
                 x_min = x_near
@@ -418,7 +431,7 @@ class RRT:
         for x_near in near_nodes:
             pt_distance = self.cost_fct(x_rand, x_near.pos)
             # currently euclidean distance, if changed, cannot be passed anymore to collision check
-            collision_free = self.sampler.collision_checker.path_collision_free(
+            collision_free = self.collision_checker.path_collision_free(
                 x_rand, x_near.pos, pt_distance, x_idx)
             motion_cost = c_min + pt_distance  # motion_cost
             if c_min + motion_cost < x_near.cost and collision_free:
@@ -482,11 +495,19 @@ class RRT:
 
     def _draw_obstacles(self, ax):
         shapely_viz = ShapelyViz(ax)
-
+        # plot static obstacles
         for s_obstacle in self.static_obstacles:
             shapely_viz.add_shape(s_obstacle.shape,
                                   color=s_obstacle.geometry.color,
                                   zorder=ZOrders.ENV_OBSTACLE)
+
+        # comptue dynamic occupancies and plot them
+        for d_obs in self.dynamic_simulator.compute_occupancies().values():
+            shapely_viz.add_shape(d_obs,
+                                  color="green",
+                                  zorder=ZOrders.ENV_OBSTACLE)
+
+        # plot goal
         shapely_viz.add_shape(self.goal.get_plottable_geometry(),
                               color="orange",
                               zorder=ZOrders.GOAL,

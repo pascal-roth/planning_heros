@@ -1,6 +1,7 @@
 from typing import List, Tuple, Dict, Callable
 from dg_commons.sim.models.model_utils import apply_acceleration_limits, apply_rot_speed_constraint
 from dg_commons.sim.models.spacecraft_structures import SpacecraftParameters
+from dg_commons.sim.simulator_structures import PlayerObservations
 import numpy as np
 import math
 from numpy.matrixlib import defmatrix
@@ -9,9 +10,10 @@ from dg_commons.sim.models.spacecraft import SpacecraftCommands, SpacecraftModel
 
 import matplotlib.pyplot as plt
 import matplotlib
+from shapely.geometry import Polygon
 
 from pdm4ar.exercises.final21.rrt.motion_constrains import MotionConstrains
-from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS
+from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS, PLANNING_HORIZON
 from scipy.spatial import KDTree
 
 
@@ -25,6 +27,12 @@ class SpacecraftTrajectory:
         self.t0 = t0
         self.tf = tf
         self.dt = dt
+
+    def __repr__(self) -> str:
+        starts = []
+        for state in self.states:
+            starts.append([state.x, state.y])
+        return f"SpacecraftTrajectory({str(np.array(starts))})"
 
     def get_cost(self) -> float:
         return float(self.get_dist() / (self.tf - self.t0))
@@ -149,17 +157,18 @@ class MotionPrimitives:
                 if acc_diff > MAX_ABS_ACC_DIFF:
                     continue
                 command = SpacecraftCommands(acc_left[i, j], acc_right[i, j])
-                trajectory = self._get_trajectory(state, command, DELTAT)
+                trajectory = self.get_trajectory(state, command, DELTAT)
                 primitives.append(trajectory)
         return primitives
 
-    def _get_trajectory(self,
+    def get_trajectory(self,
                         spacecraft_t0: SpacecraftState,
                         u: SpacecraftCommands,
                         tf: float,
                         dt: float = 0.1) -> SpacecraftTrajectory:
         # express initial state
-        model = SpacecraftModel(spacecraft_t0, self.sg, SpacecraftParameters.default())
+        model = SpacecraftModel(spacecraft_t0, self.sg,
+                                SpacecraftParameters.default())
         y0 = spacecraft_t0.as_ndarray()
 
         def _stateactions_from_array(y: np.ndarray):
@@ -184,7 +193,10 @@ class MotionPrimitives:
 
         sol = solve_ivp(fun=dynamics,
                         t_span=(0.0, tf),
-                        y0=y0, vectorized=False, method="RK23", rtol=1e-4)
+                        y0=y0,
+                        vectorized=False,
+                        method="RK23",
+                        rtol=1e-4)
 
         assert sol.success, f"Solving the IVP for ({u.acc_left}, {u.acc_right}) failed"
         states: List[SpacecraftState] = []
@@ -222,12 +234,21 @@ class MotionPrimitives:
         states: List[SpacecraftState] = [start_state]
         while t <= tf:
             start_state = states[-1]
-            new_states = self._get_trajectory(start_state, policy(t), dt,
+            new_states = self.get_trajectory(start_state, policy(t), dt,
                                               dt).states
             states += new_states
             t += dt
 
         return states
+
+    def simulate_player(self,
+                        player: PlayerObservations,
+                        horizon: float = PLANNING_HORIZON,
+                        dt: float = 0.05) -> List[SpacecraftState]:
+        u = SpacecraftCommands(0, 0)
+        trajectory = self.get_trajectory(player.state, u, horizon, dt)
+        return trajectory.states
+
 
 
 if __name__ == "__main__":

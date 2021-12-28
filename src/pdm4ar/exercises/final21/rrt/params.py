@@ -19,7 +19,16 @@ MIN_CURVATURE = 1e-3
 PRUNE_ITERATIONS = 1
 
 # Buffer (Inflate) Obstacles by Distance
-BUFFER_DISTANCE = 2
+STATIC_BUFFER_DISTANCE = 2
+DYNAMIC_BUFFER_DISTANCE = 1
 
 # Game world size 0 -> 100 in x,y
 WORLD_SIZE = (100, 100)
+
+
+#
+# Planning for dynamic obstacles
+#
+
+# Time in seconds to plan ahead for
+PLANNING_HORIZON:float = 1.

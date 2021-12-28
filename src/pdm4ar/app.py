@@ -49,7 +49,8 @@ def exercise_without_compmake(exercise: str):
     out = os.path.join(repo_dir, "out")
 
     ex = available_exercises[exercise]()
-    for i, alg_in in enumerate(ex.test_values):
+    # TODO: remove this
+    for i, alg_in in enumerate(ex.test_values[1:]):
         try:
             i_str = alg_in.str_id() + str(i)
         except:
