@@ -13,7 +13,7 @@ import matplotlib
 from shapely.geometry import Polygon
 
 from pdm4ar.exercises.final21.rrt.motion_constrains import MotionConstrains
-from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS, PLANNING_HORIZON
+from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS, MIN_PLANNING_HORIZON
 from scipy.spatial import KDTree
 
 
@@ -243,7 +243,7 @@ class MotionPrimitives:
 
     # def simulate_player(self,
     #                     player: PlayerObservations,
-    #                     horizon: float = PLANNING_HORIZON,
+    #                     horizon: float = MIN_PLANNING_HORIZON,
     #                     dt: float = 0.05) -> List[SpacecraftState]:
     #     u = SpacecraftCommands(0, 0)
     #     trajectory = self.get_trajectory(player.state, u, horizon, dt)

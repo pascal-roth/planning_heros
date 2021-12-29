@@ -22,27 +22,14 @@ from pdm4ar.exercises.final21.rrt.dynamic import DynamicObstacleSimulator
 
 from pdm4ar.exercises.final21.rrt.motion_primitives import MotionPrimitives, SpacecraftTrajectory
 from pdm4ar.exercises.final21.rrt.params import MAX_GOAL_VEL, MOTION_PRIMITIVE_INPUT_DIVISIONS, MIN_CURVATURE, \
-    PRUNE_ITERATIONS
+    PRUNE_ITERATIONS, MIN_PLANNING_HORIZON
 from pdm4ar.exercises.final21.rrt.sampler import Sampler
 from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
+from pdm4ar.exercises.final21.rrt.node import Node
 
 # use plots in developmend, turn off for simulation
 plot = False
-
-
-class Node:
-    def __init__(self, state: SpacecraftState, cost: float):
-        self.state = state
-        self.cost: cost = cost
-
-    @property
-    def pos(self) -> np.ndarray:
-        return np.array([self.state.x, self.state.y])
-
-    @property
-    def vel(self) -> np.ndarray:
-        return np.array([self.state.vx, self.state.vy])
 
 
 class RRT:
@@ -94,7 +81,7 @@ class RRT:
         self,
         spacecraft_state: SpacecraftState,
         other_players: Dict[str, PlayerObservations] = None
-    ) -> Callable[[float], SpacecraftCommands]:
+    ) -> Tuple[Callable[[float], SpacecraftCommands], Optional[float]]:
         # initiate dynamic obstacle simulator if dynamic obstacles are present
         if other_players is not None and len(other_players) > 0:
             self.dynamic_simulator = DynamicObstacleSimulator(
@@ -104,6 +91,18 @@ class RRT:
 
         t_start = time.time()
         rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
+
+        if other_players is not None and len(other_players) > 0:
+            time_horizon = self.dynamic_simulator.get_planning_horizon(rrt_path, spacecraft_state)
+            if time_horizon != MIN_PLANNING_HORIZON and time_horizon != np.inf:
+                print(f'RRT Path recalculation with time horzion: {time_horizon}')
+                self.collision_checker = CollisionChecker(self.static_obstacles,
+                                                          self.dynamic_simulator,
+                                                          horizon=time_horizon)
+                rrt_path = self.plan_rrt_path(spacecraft_state=spacecraft_state)
+        else:
+            time_horizon = None
+
         t_rrt = time.time() - t_start
         t_start = time.time()
         motion_path, primitives = self.plan_motion_path(
@@ -205,7 +204,7 @@ class RRT:
             f.show()
             plt.show()
 
-        return policy
+        return policy, time_horizon
 
     def test_dynamics(self, init: SpacecraftState, policy, total_time: float):
         sp = SpacecraftParameters.default()

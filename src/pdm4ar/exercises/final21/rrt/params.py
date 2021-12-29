@@ -31,4 +31,7 @@ WORLD_SIZE = (100, 100)
 #
 
 # Time in seconds to plan ahead for
-PLANNING_HORIZON:float = 1.
+MIN_PLANNING_HORIZON: float = 1.
+MAX_PLANNING_HORIZON: float = 10.
+SAFTY_FACTOR: float = 1.25
+

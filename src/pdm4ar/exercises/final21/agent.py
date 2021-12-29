@@ -7,7 +7,7 @@ from dg_commons.sim.agents import Agent
 from dg_commons.sim.models.obstacles import StaticObstacle
 from dg_commons.sim.models.spacecraft import SpacecraftCommands
 from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
-from pdm4ar.exercises.final21.rrt.params import PLANNING_HORIZON
+from pdm4ar.exercises.final21.rrt.params import MIN_PLANNING_HORIZON
 
 from pdm4ar.exercises.final21.rrt.rrt import RRT
 
@@ -29,6 +29,7 @@ class Pdm4arAgent(Agent):
         self.rrt: RRT = RRT(self.goal, self.static_obstacles, self.sg)
         self.policy: Callable[[float], SpacecraftCommands] = None
         self.last_path_update: float = None
+        self.planning_horizon: float = MIN_PLANNING_HORIZON
 
     def on_episode_init(self, my_name: PlayerName):
         self.name = my_name
@@ -48,8 +49,8 @@ class Pdm4arAgent(Agent):
             self.dynamic_obstacles = True if len(sim_obs.players) > 1 else False
 
         if self.dynamic_obstacles and (self.last_path_update is None or
-                                       self.last_path_update + PLANNING_HORIZON <= time):
-            self.policy = self.rrt.plan_path(
+                                       self.last_path_update + self.planning_horizon <= time):
+            self.policy, self.planning_horizon = self.rrt.plan_path(
                 sim_obs.players[self.name].state,
                 other_players={
                     name: player
@@ -58,7 +59,7 @@ class Pdm4arAgent(Agent):
                 })
             self.last_path_update = time
         elif self.policy is None:
-            self.policy = self.rrt.plan_path(sim_obs.players[self.name].state)
+            self.policy, _ = self.rrt.plan_path(sim_obs.players[self.name].state)
 
         if self.dynamic_obstacles:
             eval_time = time - self.last_path_update

@@ -1,4 +1,4 @@
-from typing import Sequence, List, Tuple
+from typing import Sequence, List, Tuple, Optional
 from dg_commons.sim.models.obstacles import StaticObstacle
 from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 from scipy.spatial.kdtree import KDTree
@@ -17,7 +17,8 @@ class BoundingBox:
 class CollisionChecker:
     def __init__(self,
                  static_obstacles: Sequence[StaticObstacle],
-                 dynamic_simulator: DynamicObstacleSimulator = None):
+                 dynamic_simulator: DynamicObstacleSimulator = None,
+                 horizon: Optional[float] = None):
         self.static_obstacles: List[StaticObstacle] = list(static_obstacles)
         self.dynamic_simulator = dynamic_simulator
         self.dist2obstacle: List[float] = []
@@ -31,7 +32,7 @@ class CollisionChecker:
             # add the predicted occupancies of all dynamic obstacles as obstacles to avoid
             self.obstacle_shapes += [
                 occupancy.buffer(DYNAMIC_BUFFER_DISTANCE) for name, occupancy
-                in dynamic_simulator.compute_occupancies().items()
+                in dynamic_simulator.compute_occupancies(horizon).items()
             ]
 
         boundary_pts = []
