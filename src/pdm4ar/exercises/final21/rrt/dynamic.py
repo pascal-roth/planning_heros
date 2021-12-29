@@ -61,28 +61,33 @@ class DynamicObstacleSimulator:
 
     def get_planning_horizon(self, rrt_path: List[Node], sc_state: SpacecraftState) -> float:
         """
-        Idea: determine distance between obstacle and the point on the rrt path/ motion primitive path where a collision
-        might happen for different times, choose time as planning horizon which is as large as possible without
-        violating a closeness constrain (if no collision between rrt and obstacle path, set planning horizon until
-        dynamic obstacle hits other obstacle if that does not happen as well, set it to infty -> static case)
+        determine distance between obstacle and the point on the rrt path where a collision
+        might happen and for which time depending on the current velocity, choose time as planning horizon until
+        collision including a safety factor accounting for potential velocity increase
+        (if no collision between rrt and obstacle path, set planning horizon to infty -> static case)
 
-        :return:
+        :return: planning horizon
         """
         rrt_points = [rrt_pt.pos for rrt_pt in rrt_path]
         sc_trajectory = shapely.geometry.LineString(rrt_points)
-        do_point = [np.array([st.x, st.y]) for st in self.simulate(horizon=10)['DObs1'].states]
-        do_trajectory = shapely.geometry.LineString(do_point)
 
-        intersection = sc_trajectory.intersection(do_trajectory)
+        time_to_collision_all = []
+        for name, trajectory in self.simulate(horizon=MAX_PLANNING_HORIZON).items():
+            do_point = [np.array([st.x, st.y]) for st in trajectory.states]
+            do_trajectory = shapely.geometry.LineString(do_point)
 
-        if hasattr(intersection, 'x'):
-            dist_sc_intersection = np.linalg.norm(np.array([intersection.x, intersection.y]) -
-                                                  np.array([self.other_players['DObs1'].state.x,
-                                                            self.other_players['DObs1'].state.y]))
+            intersection = sc_trajectory.intersection(do_trajectory)
 
-            time_to_collision = dist_sc_intersection / sc_state.vx * SAFTY_FACTOR
-        else:
-            time_to_collision = np.infty
+            if hasattr(intersection, 'x'):
+                dist_sc_intersection = np.linalg.norm(np.array([intersection.x, intersection.y]) -
+                                                      np.array([self.other_players[name].state.x,
+                                                                self.other_players[name].state.y]))
+
+                time_to_collision_all.append(dist_sc_intersection / sc_state.vx * SAFTY_FACTOR)
+            else:
+                time_to_collision_all.append(np.infty)
+
+        time_to_collision = np.min(time_to_collision_all)
 
         if time_to_collision < MIN_PLANNING_HORIZON:
             return MIN_PLANNING_HORIZON
