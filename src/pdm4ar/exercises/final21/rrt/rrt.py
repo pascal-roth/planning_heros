@@ -22,7 +22,7 @@ from pdm4ar.exercises.final21.rrt.dynamic import DynamicObstacleSimulator
 
 from pdm4ar.exercises.final21.rrt.motion_primitives import MotionPrimitives, SpacecraftTrajectory
 from pdm4ar.exercises.final21.rrt.params import MAX_GOAL_VEL, MOTION_PRIMITIVE_INPUT_DIVISIONS, MIN_CURVATURE, \
-    PRUNE_ITERATIONS, MIN_PLANNING_HORIZON
+    PRUNE_ITERATIONS, MIN_PLANNING_HORIZON, RRT_SAMPLES
 from pdm4ar.exercises.final21.rrt.sampler import Sampler
 from pdm4ar.exercises.final21.rrt.distance import Distance, DistanceMetric
 from pdm4ar.exercises.final21.rrt.cost import euclidean_cost
@@ -37,7 +37,7 @@ class RRT:
                  goal: PolygonGoal,
                  static_obstacles: Sequence[StaticObstacle],
                  sg: SpacecraftGeometry,
-                 n_samples: int = 500,
+                 n_samples: int = RRT_SAMPLES,
                  distance_metric: DistanceMetric = DistanceMetric.L2,
                  radius: Optional[float] = None):
         """
@@ -232,8 +232,7 @@ class RRT:
         distance_idx_sorted = np.argsort(distance)
 
         # initialize distances between samples in the pc and the obstacles in the collision class
-        self.collision_checker.obstacle_distance(
-            self.sampler.pc2array())
+        self.collision_checker.obstacle_distance(self.sampler.pc2array())
 
         for idx in distance_idx_sorted:
             self._update_graph(idx)
@@ -293,6 +292,7 @@ class RRT:
                                        np.array([state.x, state.y]))
             deviation_err = np.max(norms)
             control_err = np.linalg.norm(control_input)
+            spin_err = np.max([state.dpsi for state in primitive.states])
             end_vel = np.linalg.norm(vel[-1, :])
 
             # collision cost
@@ -303,7 +303,7 @@ class RRT:
             # ]
             # even_pts = np.array([pt.xy for pt in even_division])
             is_collding, min_dist = self.collision_checker.collding(
-                primitive_pos)
+                primitive.states)
             collsion_cost = 0
             if is_collding:
                 collsion_cost = np.inf
@@ -362,7 +362,7 @@ class RRT:
                     costs[end_state] = c
                     parents[end_state] = state
                     heapq.heappush(frontier, (f, end_state))
-        raise RuntimeError("could not find motion path from start to goal")
+        raise RuntimeError("Motion Primitives could not find motion path from start to goal")
 
     def _add_root(self, spacecraft_state: SpacecraftState) -> int:
         x_start = np.expand_dims(np.array(
@@ -501,10 +501,11 @@ class RRT:
                                   zorder=ZOrders.ENV_OBSTACLE)
 
         # comptue dynamic occupancies and plot them
-        for d_obs in self.dynamic_simulator.compute_occupancies().values():
-            shapely_viz.add_shape(d_obs,
-                                  color="green",
-                                  zorder=ZOrders.ENV_OBSTACLE)
+        if self.dynamic_simulator is not None:
+            for d_obs in self.dynamic_simulator.compute_occupancies().values():
+                shapely_viz.add_shape(d_obs,
+                                    color="green",
+                                    zorder=ZOrders.ENV_OBSTACLE)
 
         # plot goal
         shapely_viz.add_shape(self.goal.get_plottable_geometry(),

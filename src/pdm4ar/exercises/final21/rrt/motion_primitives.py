@@ -13,7 +13,7 @@ import matplotlib
 from shapely.geometry import Polygon
 
 from pdm4ar.exercises.final21.rrt.motion_constrains import MotionConstrains
-from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT, MAX_ABS_ACC_DIFF, MOTION_PRIMITIVE_STATE_DIVISIONS, MIN_PLANNING_HORIZON
+from pdm4ar.exercises.final21.rrt.params import CONSTRAIN_VEL_ANG, DELTAT, MAX_DIFFERENTIAL_THRUST, MOTION_PRIMITIVE_STATE_DIVISIONS, MIN_PLANNING_HORIZON
 from scipy.spatial import KDTree
 
 
@@ -154,7 +154,7 @@ class MotionPrimitives:
         for i in range(acc_left.shape[0]):
             for j in range(acc_left.shape[1]):
                 acc_diff = np.abs(acc_left[i, j] - acc_right[i, j])
-                if acc_diff > MAX_ABS_ACC_DIFF:
+                if acc_diff > MAX_DIFFERENTIAL_THRUST:
                     continue
                 command = SpacecraftCommands(acc_left[i, j], acc_right[i, j])
                 trajectory = self.get_trajectory(state, command, DELTAT)
@@ -162,10 +162,10 @@ class MotionPrimitives:
         return primitives
 
     def get_trajectory(self,
-                        spacecraft_t0: SpacecraftState,
-                        u: SpacecraftCommands,
-                        tf: float,
-                        dt: float = 0.1) -> SpacecraftTrajectory:
+                       spacecraft_t0: SpacecraftState,
+                       u: SpacecraftCommands,
+                       tf: float,
+                       dt: float = 0.1) -> SpacecraftTrajectory:
         # express initial state
         model = SpacecraftModel(spacecraft_t0, self.sg,
                                 SpacecraftParameters.default())
@@ -235,7 +235,7 @@ class MotionPrimitives:
         while t <= tf:
             start_state = states[-1]
             new_states = self.get_trajectory(start_state, policy(t), dt,
-                                              dt).states
+                                             dt).states
             states += new_states
             t += dt
 
@@ -248,7 +248,6 @@ class MotionPrimitives:
     #     u = SpacecraftCommands(0, 0)
     #     trajectory = self.get_trajectory(player.state, u, horizon, dt)
     #     return trajectory.states
-
 
 
 if __name__ == "__main__":

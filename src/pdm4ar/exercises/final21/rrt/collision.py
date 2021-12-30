@@ -1,5 +1,6 @@
 from typing import Sequence, List, Tuple, Optional
 from dg_commons.sim.models.obstacles import StaticObstacle
+from dg_commons.sim.models.spacecraft import SpacecraftState
 from dg_commons.sim.models.spacecraft_structures import SpacecraftGeometry
 from scipy.spatial.kdtree import KDTree
 from shapely.geometry import Point
@@ -7,11 +8,6 @@ import numpy as np
 from pdm4ar.exercises.final21.rrt.dynamic import DynamicObstacleSimulator
 
 from pdm4ar.exercises.final21.rrt.params import DYNAMIC_BUFFER_DISTANCE, STATIC_BUFFER_DISTANCE, WORLD_SIZE
-
-
-class BoundingBox:
-    def __init__(self, obstacle: StaticObstacle):
-        pass
 
 
 class CollisionChecker:
@@ -60,18 +56,18 @@ class CollisionChecker:
                                          dtype=bool)
         return ~colliding
 
-    def collding(
-        self,
-        pts: np.ndarray,
-    ) -> Tuple[bool, float]:
+    def collding(self, states: List[SpacecraftState]) -> Tuple[bool, float]:
+        pos = np.array([[state.x, state.y] for state in states])
+
         outside_world = np.asarray(
-            (pts[:, 0] < 0) | (pts[:, 0] > WORLD_SIZE[0]) | (pts[:, 1] < 0) |
-            (pts[:, 1] > WORLD_SIZE[1]),
+            (pos[:, 0] < 0) | (pos[:, 0] > WORLD_SIZE[0]) | (pos[:, 1] < 0) |
+            (pos[:, 1] > WORLD_SIZE[1]),
             dtype=bool)
-        distances, _ = self.boundary_tree.query(pts)
-        return np.any(outside_world | np.asarray(
-            distances <= self.spacecraft_geometry.w_half, dtype=bool)), np.min(
-                distances)
+        distances, _ = self.boundary_tree.query(pos)
+        max_spacecraft_size = self.spacecraft_geometry.w_half
+        return np.any(outside_world
+                      | np.asarray(distances <= max_spacecraft_size,
+                                   dtype=bool)), np.min(distances)
 
     def path_collision_free(self, pt_start: np.ndarray, pt_end: np.ndarray,
                             pt_distance: float, idx: int):
@@ -85,7 +81,7 @@ class CollisionChecker:
                 pt_start[0] + offset * delta_x, pt_start[1] + offset * delta_y
             ]) for offset in np.linspace(0, 1, 4)
         ]
-        return all(self.is_collision_free(np.array(pts_on_line)))
+        return np.all(self.is_collision_free(np.array(pts_on_line)))
 
     def obstacle_distance(self, point_cloud: np.ndarray) -> None:
         self.dist2obstacle = [
@@ -94,3 +90,17 @@ class CollisionChecker:
                 for shape in self.obstacle_shapes
             ]) for pc_point in point_cloud
         ]
+
+    def bounding_box_at(self, state: SpacecraftState) -> np.ndarray:
+        s = self.spacecraft_geometry
+        s_psi = np.sin(state.psi)
+        c_psi = np.cos(state.psi)
+        # spacecraft bounding box with CoG at origin
+        bounding_box = np.array([[-s.lr, s.w_half], [s.lf, s.w_half],
+                                 [s.lf, -s.w_half], [-s.lr, -s.w_half]])
+        # rotate by state.psi
+        rotation = np.array([[c_psi, -s_psi], [s_psi, c_psi]])
+        bounding_box = (rotation @ bounding_box.T).T
+        # move to state.pos
+        bounding_box += np.array([state.x, state.y])
+        return bounding_box
