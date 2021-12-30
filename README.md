@@ -123,6 +123,6 @@ The given setup has been evaluated on two additional, custom dgscenaries. In ord
 ## Progress Bar
 
 ```
-==============================================>
+8=============================================D
 0---------------------------------------------1
 ```
